@@ -5,32 +5,40 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 
+// Initialize express app
 const app = express();
 
 // ==========================
-// CORS Configuration
+// 🌍 CORS Configuration
 // ==========================
 const allowedOrigins = [
-  'http://localhost:3000', // local React dev
-  'https://your-vercel-frontend.vercel.app', // replace with your actual Vercel frontend URL
+  'http://localhost:3000',                       // Local development
+  'https://cleanconnect-frontend.vercel.app',    // Your Vercel frontend domain
 ];
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS policy: ${origin} not allowed`));
-    }
-  },
-  credentials: true, // allows cookies and auth headers
-};
+// Configure CORS dynamically
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // allow requests with no origin (Postman, mobile apps)
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        console.warn('❌ CORS blocked for origin:', origin);
+        return callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
-app.use(cors(corsOptions));
+// Enable JSON parsing
 app.use(express.json({ limit: '10mb' }));
 
 // ==========================
-// PostgreSQL Connection
+// 💾 PostgreSQL Connection
 // ==========================
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -41,12 +49,12 @@ const pool = new Pool({
 
 pool.connect()
   .then(() => console.log('✅ Connected to PostgreSQL Database'))
-  .catch(err => console.error('❌ Database connection error:', err.stack));
+  .catch((err) => console.error('❌ Database connection error:', err.stack));
 
 global.db = pool;
 
 // ==========================
-// API Routes
+// 📦 API Routes
 // ==========================
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
@@ -55,24 +63,28 @@ app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/contact', require('./routes/contact'));
 
-// Root route
+// ==========================
+// 🏠 Root Route
+// ==========================
 app.get('/', (req, res) => {
   res.send('🌍 CleanConnect Backend is Running Successfully 🚀');
 });
 
 // ==========================
-// Error Handling Middleware
+// ⚠️ Global Error Handling
 // ==========================
 app.use((err, req, res, next) => {
-  console.error('❌ Server Error:', err.stack);
-  if (err.message.includes('CORS')) {
-    return res.status(403).json({ message: err.message });
-  }
-  res.status(500).json({ message: 'Something went wrong on the server!' });
+  console.error('❌ Server Error:', err.message);
+  res.status(500).json({
+    success: false,
+    message: err.message || 'Something went wrong on the server!',
+  });
 });
 
 // ==========================
-// Start Server
+// 🚀 Start Server
 // ==========================
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
