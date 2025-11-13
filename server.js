@@ -5,23 +5,23 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 
-// Initialize express app
 const app = express();
 
 // ==========================
-// 🌍 CORS Configuration
+// 🌍 Flexible CORS Configuration
 // ==========================
-const allowedOrigins = [
-  'http://localhost:3000',                       // Local development
-  'https://cleanconnect-frontend.vercel.app',    // Your Vercel frontend domain
-];
-
-// Configure CORS dynamically
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // allow requests with no origin (Postman, mobile apps)
-      if (allowedOrigins.includes(origin)) {
+      if (!origin) return callback(null, true); // Allow Postman, mobile apps, etc.
+
+      const allowedPatterns = [
+        /^https?:\/\/localhost:3000$/,                 // Local development
+        /^https:\/\/cleanconnect-frontend.*\.vercel\.app$/, // Any Vercel subdomain
+      ];
+
+      const isAllowed = allowedPatterns.some((pattern) => pattern.test(origin));
+      if (isAllowed) {
         return callback(null, true);
       } else {
         console.warn('❌ CORS blocked for origin:', origin);
@@ -34,7 +34,17 @@ app.use(
   })
 );
 
-// Enable JSON parsing
+// ==========================
+// 🧠 Debugging Middleware (optional)
+// ==========================
+app.use((req, res, next) => {
+  console.log(`➡️  ${req.method} ${req.originalUrl}`);
+  next();
+});
+
+// ==========================
+// 🧩 Middleware
+// ==========================
 app.use(express.json({ limit: '10mb' }));
 
 // ==========================
