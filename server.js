@@ -1,32 +1,28 @@
-// File: server.js
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const path = require('path');
 
 const app = express();
 
 // ==========================
-// 🌍 Flexible CORS Configuration
+// 🌍 CORS Configuration
 // ==========================
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // Allow Postman, mobile apps, etc.
+      if (!origin) return callback(null, true);
 
       const allowedPatterns = [
-        /^https?:\/\/localhost:3000$/,                 // Local development
-        /^https:\/\/cleanconnect-frontend.*\.vercel\.app$/, // Any Vercel subdomain
+        /^https?:\/\/localhost:3000$/,
+        /^https:\/\/cleanconnect-frontend.*\.vercel\.app$/,
       ];
 
       const isAllowed = allowedPatterns.some((pattern) => pattern.test(origin));
-      if (isAllowed) {
-        return callback(null, true);
-      } else {
-        console.warn('❌ CORS blocked for origin:', origin);
-        return callback(new Error('Not allowed by CORS'));
-      }
+      if (isAllowed) return callback(null, true);
+      console.warn('❌ CORS blocked for origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -35,7 +31,7 @@ app.use(
 );
 
 // ==========================
-// 🧠 Debugging Middleware (optional)
+// 🧠 Debugging Middleware
 // ==========================
 app.use((req, res, next) => {
   console.log(`➡️  ${req.method} ${req.originalUrl}`);
@@ -46,12 +42,12 @@ app.use((req, res, next) => {
 // 🧩 Middleware
 // ==========================
 app.use(express.json({ limit: '10mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); // Serve uploaded files
 
 // ==========================
 // 💾 PostgreSQL Connection
 // ==========================
 const isProduction = process.env.NODE_ENV === 'production';
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: isProduction ? { rejectUnauthorized: false } : false,
