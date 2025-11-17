@@ -5,15 +5,19 @@ const router = express.Router();
 const { registerUser, loginUser, getMe } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 
-// Use the shared Cloudinary-powered upload config
-const { uploadFields } = require('../middleware/upload');
+// Use the enhanced flexible upload middleware
+const { flexibleUpload, handleMulterErrors } = require('../middleware/upload');
 
 // ---------------------------
 // Routes
 // ---------------------------
 
-// Register (supports all expected file fields)
-router.post('/register', uploadFields, registerUser);
+// Register with enhanced file upload handling
+router.post('/register', 
+  flexibleUpload, 
+  handleMulterErrors, 
+  registerUser
+);
 
 // Login
 router.post('/login', loginUser);
