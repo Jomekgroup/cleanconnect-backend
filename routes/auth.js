@@ -4,22 +4,16 @@ const express = require('express');
 const router = express.Router();
 const { registerUser, loginUser, getMe } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
-const multer = require('multer');
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
+// Use the shared Cloudinary-powered upload config
+const { uploadFields } = require('../middleware/upload');
 
 // ---------------------------
 // Routes
 // ---------------------------
 
-// Updated to accept all file fields
-router.post('/register', upload.fields([
-    { name: 'selfie', maxCount: 1 },
-    { name: 'governmentId', maxCount: 1 },
-    { name: 'profilePhoto', maxCount: 1 },
-    { name: 'businessRegDoc', maxCount: 1 }
-]), registerUser);
+// Register (supports all expected file fields)
+router.post('/register', uploadFields, registerUser);
 
 // Login
 router.post('/login', loginUser);
