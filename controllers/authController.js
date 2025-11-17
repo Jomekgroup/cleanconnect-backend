@@ -42,35 +42,49 @@ const uploadToCloudinary = (fileBuffer, folder = 'cleanconnect') => {
 };
 
 // -----------------------------
-// Validate Required Files
+// Enhanced File Validation - FIXED VERSION
 // -----------------------------
 const validateRequiredFiles = (files, role, cleanerType) => {
     const errors = [];
     
-    // Check if selfie exists and has content
+    console.log('🔍 Validating files:', files ? Object.keys(files) : 'No files');
+    
+    // Check if selfie exists - support multiple field names and check if file has content
     const selfie = files?.selfie?.[0];
-    if (!selfie || selfie.size === 0) {
+    if (!selfie || !selfie.buffer || selfie.buffer.length === 0) {
+        console.log('❌ Selfie validation failed:', selfie ? 'Empty buffer' : 'File missing');
         errors.push('Selfie is required for verification');
+    } else {
+        console.log('✅ Selfie validation passed');
     }
     
-    // Check if ID document exists and has content (support both field names)
+    // Check if ID document exists - support both field names and check content
     const idDocument = files?.idDocument?.[0] || files?.governmentId?.[0];
-    if (!idDocument || idDocument.size === 0) {
+    if (!idDocument || !idDocument.buffer || idDocument.buffer.length === 0) {
+        console.log('❌ ID document validation failed:', idDocument ? 'Empty buffer' : 'File missing');
         errors.push('Government ID document is required for verification');
+    } else {
+        console.log('✅ ID document validation passed');
     }
     
     // Validate cleaner-specific files
     if (role === 'cleaner') {
         const profilePhoto = files?.profilePhoto?.[0];
-        if (!profilePhoto || profilePhoto.size === 0) {
+        if (!profilePhoto || !profilePhoto.buffer || profilePhoto.buffer.length === 0) {
+            console.log('❌ Profile photo validation failed:', profilePhoto ? 'Empty buffer' : 'File missing');
             errors.push('Profile photo is required for cleaners');
+        } else {
+            console.log('✅ Profile photo validation passed');
         }
         
         // Business registration is required for company cleaners
         if (cleanerType === 'Company') {
             const businessRegDoc = files?.businessRegDoc?.[0];
-            if (!businessRegDoc || businessRegDoc.size === 0) {
+            if (!businessRegDoc || !businessRegDoc.buffer || businessRegDoc.buffer.length === 0) {
+                console.log('❌ Business registration validation failed:', businessRegDoc ? 'Empty buffer' : 'File missing');
                 errors.push('Business registration document is required for company cleaners');
+            } else {
+                console.log('✅ Business registration validation passed');
             }
         }
     }
@@ -132,7 +146,8 @@ const validateFormData = (data, role, cleanerType, clientType) => {
         const hasPricing = Number(data.chargeHourly) > 0 || 
                           Number(data.chargeDaily) > 0 || 
                           Number(data.chargePerContract) > 0 || 
-                          data.chargePerContractNegotiable === 'true';
+                          data.chargePerContractNegotiable === 'true' ||
+                          data.chargePerContractNegotiable === true;
         if (!hasPricing) {
             errors.push('At least one pricing option is required');
         }
@@ -157,7 +172,7 @@ const validateFormData = (data, role, cleanerType, clientType) => {
 };
 
 // -----------------------------
-// REGISTER USER
+// REGISTER USER - FIXED VERSION
 // -----------------------------
 const registerUser = async (req, res, next) => {
     console.log('=== REGISTRATION REQUEST STARTED ===');
@@ -176,7 +191,7 @@ const registerUser = async (req, res, next) => {
         bankName, accountNumber,
     } = req.body;
 
-    // Safely handle files - they might not exist or be empty
+    // Safely handle files
     const files = req.files || {};
 
     console.log('📝 Form data received:', {
@@ -188,15 +203,23 @@ const registerUser = async (req, res, next) => {
         cleanerType
     });
 
-    console.log('📁 Files received:', Object.keys(files).map(key => ({
-        field: key,
-        count: files[key]?.length || 0,
-        files: files[key]?.map(f => ({
-            name: f.originalname,
-            size: f.size,
-            type: f.mimetype
-        }))
-    })));
+    // EXTENSIVE FILE DEBUGGING
+    console.log('🔍 FILE ANALYSIS:');
+    console.log('req.files exists:', !!req.files);
+    
+    if (req.files) {
+        console.log('📁 Files received:', Object.keys(req.files));
+        
+        Object.keys(req.files).forEach(fieldName => {
+            const fileArray = req.files[fieldName];
+            console.log(`   ${fieldName}: ${fileArray.length} file(s)`);
+            fileArray.forEach((file, index) => {
+                console.log(`     - File ${index + 1}: ${file.originalname} (${file.size} bytes, buffer: ${file.buffer ? file.buffer.length + ' bytes' : 'no buffer'})`);
+            });
+        });
+    } else {
+        console.log('❌ NO FILES FOUND - This indicates Multer is not processing files');
+    }
 
     // Validate form data
     const formErrors = validateFormData(req.body, role, cleanerType, clientType);
@@ -207,12 +230,20 @@ const registerUser = async (req, res, next) => {
         });
     }
 
-    // Validate required files
+    // Validate required files - BUT with better error handling
     const fileErrors = validateRequiredFiles(files, role, cleanerType);
     if (fileErrors.length > 0) {
         console.log('❌ File validation errors:', fileErrors);
+        
+        // Provide more helpful error message
+        if (!files || Object.keys(files).length === 0) {
+            return res.status(400).json({ 
+                message: "No files were uploaded. Please check that you've selected all required files and try again." 
+            });
+        }
+        
         return res.status(400).json({ 
-            message: `File validation failed: ${fileErrors.join(', ')}` 
+            message: `File upload issue: ${fileErrors.join(', ')}. Please ensure all files are selected and under 5MB.` 
         });
     }
 
@@ -289,6 +320,7 @@ const registerUser = async (req, res, next) => {
                 console.log('☁️ Uploading files to Cloudinary...');
                 
                 if (files.selfie && files.selfie[0]) {
+                    console.log('📤 Uploading selfie...');
                     selfieUrl = await uploadToCloudinary(files.selfie[0].buffer, "cleanconnect/selfies");
                     console.log('✅ Selfie uploaded:', selfieUrl ? 'success' : 'failed');
                 }
@@ -296,16 +328,19 @@ const registerUser = async (req, res, next) => {
                 // Support both field names for ID document
                 const idDocument = files.idDocument?.[0] || files.governmentId?.[0];
                 if (idDocument) {
+                    console.log('📤 Uploading ID document...');
                     idUrl = await uploadToCloudinary(idDocument.buffer, "cleanconnect/ids");
                     console.log('✅ ID document uploaded:', idUrl ? 'success' : 'failed');
                 }
 
                 if (files.profilePhoto && files.profilePhoto[0]) {
+                    console.log('📤 Uploading profile photo...');
                     profilePhotoUrl = await uploadToCloudinary(files.profilePhoto[0].buffer, "cleanconnect/profiles");
                     console.log('✅ Profile photo uploaded:', profilePhotoUrl ? 'success' : 'failed');
                 }
 
                 if (files.businessRegDoc && files.businessRegDoc[0]) {
+                    console.log('📤 Uploading business registration...');
                     businessRegUrl = await uploadToCloudinary(files.businessRegDoc[0].buffer, "cleanconnect/business_docs");
                     console.log('✅ Business registration uploaded:', businessRegUrl ? 'success' : 'failed');
                 }
@@ -313,7 +348,7 @@ const registerUser = async (req, res, next) => {
                 console.error('❌ File upload error:', uploadError);
                 await client.query("ROLLBACK");
                 return res.status(500).json({ 
-                    message: "Error uploading files to storage. Please try again." 
+                    message: "Error uploading files to storage. Please try again with smaller file sizes." 
                 });
             }
 
