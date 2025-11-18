@@ -1,5 +1,5 @@
 // File: controllers/authController.js
-// UPDATED FOR SIGNUPFORM COMPATIBILITY
+// FIXED VERSION - Matches ACTUAL database schema with 'cleaners' table
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -176,7 +176,7 @@ const validateFormData = (data, role, cleanerType, clientType) => {
 };
 
 // -----------------------------
-// UPDATED: REGISTER USER - SignupForm Compatible
+// UPDATED: REGISTER USER - Uses CORRECT table names
 // -----------------------------
 const registerUser = async (req, res, next) => {
     console.log('=== SIGNUPFORM REGISTRATION REQUEST STARTED ===');
@@ -228,7 +228,6 @@ const registerUser = async (req, res, next) => {
     }
 
     // Generate a default password for SignupForm users
-    // In production, you might want to send a password setup email
     const defaultPassword = `CleanConnect${Date.now()}`;
 
     // Validate form data
@@ -315,7 +314,7 @@ const registerUser = async (req, res, next) => {
         }
 
         // -----------------------------
-        // CLEANER PROFILE - UPDATED for SignupForm
+        // CLEANER PROFILE - USES 'cleaners' TABLE (not cleaner_profiles)
         // -----------------------------
         if (role === "cleaner") {
             console.log('🧹 Creating cleaner profile...');
@@ -355,10 +354,10 @@ const registerUser = async (req, res, next) => {
                 });
             }
 
-            // Insert cleaner profile - UPDATED fields
+            // Insert cleaner profile - USES 'cleaners' TABLE
             await client.query(
                 `
-                INSERT INTO cleaner_profiles (
+                INSERT INTO cleaners (
                     user_id, cleaner_type, experience_years, bio, nin,
                     charge_hourly, charge_daily, charge_per_contract,
                     charge_per_contract_negotiable, account_number, bank_name,
@@ -386,7 +385,7 @@ const registerUser = async (req, res, next) => {
             console.log('✅ Cleaner profile created');
 
             // -----------------------------
-            // CLEANER SERVICES - UPDATED for SignupForm
+            // CLEANER SERVICES
             // -----------------------------
             if (services && (Array.isArray(services) ? services.length > 0 : services.trim() !== '')) {
                 console.log('🔧 Adding cleaner services...');
@@ -420,16 +419,6 @@ const registerUser = async (req, res, next) => {
                         console.log(`✅ Service added: ${service}`);
                     } else {
                         console.warn(`❌ Service not found in database: ${service}`);
-                        // Optionally create the service if it doesn't exist
-                        // const newService = await client.query(
-                        //     "INSERT INTO services (name) VALUES ($1) RETURNING id",
-                        //     [service.trim()]
-                        // );
-                        // await client.query(
-                        //     "INSERT INTO cleaner_services (cleaner_user_id, service_id) VALUES ($1, $2)",
-                        //     [newUser.id, newService.rows[0].id]
-                        // );
-                        // servicesAdded++;
                     }
                 }
                 console.log(`✅ ${servicesAdded} services added total`);
@@ -444,51 +433,69 @@ const registerUser = async (req, res, next) => {
         // Generate token
         const token = generateToken(newUser.id, newUser.is_admin);
 
-        // Get complete user data for response
+        // FIXED: Uses CORRECT table names - 'cleaners' instead of 'cleaner_profiles'
         const completeUserQuery = `
             SELECT 
                 u.*,
-                cp.cleaner_type, cp.experience_years, cp.bio, cp.id_url,
-                cp.profile_photo_url, cp.business_reg_url,
-                cp.charge_hourly, cp.charge_daily, cp.charge_per_contract,
-                cp.charge_per_contract_negotiable, cp.account_number, cp.bank_name,
-                clp.client_type, clp.company_name, clp.company_address,
-                ARRAY_AGG(DISTINCT s.name) as services
+                c.cleaner_type, c.experience_years, c.bio,
+                c.charge_hourly, c.charge_daily, c.charge_per_contract,
+                c.charge_per_contract_negotiable, c.account_number, c.bank_name,
+                cl.client_type, cl.company_name
             FROM users u
-            LEFT JOIN cleaner_profiles cp ON cp.user_id = u.id AND u.role='cleaner'
-            LEFT JOIN client_profiles clp ON clp.user_id = u.id AND u.role='client'
-            LEFT JOIN cleaner_services cs ON cs.cleaner_user_id = u.id
-            LEFT JOIN services s ON s.id = cs.service_id
+            LEFT JOIN cleaners c ON c.user_id = u.id AND u.role='cleaner'
+            LEFT JOIN client_profiles cl ON cl.user_id = u.id AND u.role='client'
             WHERE u.id=$1
-            GROUP BY u.id, cp.id, clp.id;
         `;
 
         const completeUser = (await client.query(completeUserQuery, [newUser.id])).rows[0];
-        delete completeUser.password_hash;
+        
+        if (completeUser) {
+            delete completeUser.password_hash;
+        }
 
         console.log('🎉 SignupForm registration completed successfully for:', email);
         
         res.status(201).json({
             message: "Registration successful",
             token,
-            user: completeUser,
+            user: completeUser || newUser, // Fallback to basic user if join fails
         });
         
     } catch (err) {
         await client.query("ROLLBACK");
-        console.error('❌ Registration error:', err);
         
-        // Provide more specific error messages
+        console.error('❌ REGISTRATION ERROR DETAILS:');
+        console.error('Error Name:', err.name);
+        console.error('Error Code:', err.code);
+        console.error('Error Message:', err.message);
+        console.error('Error Stack:', err.stack);
+        
+        // Database errors
         if (err.code === '23505') { // Unique violation
-            return res.status(400).json({ message: "User with this email already exists." });
+            return res.status(400).json({ 
+                message: "User with this email already exists." 
+            });
         } else if (err.code === '23502') { // Not null violation
-            return res.status(400).json({ message: "Missing required fields." });
+            return res.status(400).json({ 
+                message: `Missing required field` 
+            });
         } else if (err.code === '23503') { // Foreign key violation
-            return res.status(400).json({ message: "Invalid reference data." });
-        } else if (err.code === '22001') { // String data right truncation
-            return res.status(400).json({ message: "Data too long for one or more fields." });
+            return res.status(400).json({ 
+                message: "Invalid reference data." 
+            });
+        } else if (err.code === '23514') { // Check violation
+            return res.status(400).json({ 
+                message: `Data validation failed` 
+            });
         } else if (err.code === '22P02') { // Invalid text representation
-            return res.status(400).json({ message: "Invalid data format." });
+            return res.status(400).json({ 
+                message: "Invalid data format for one or more fields." 
+            });
+        } else if (err.code === '42703') { // Undefined column
+            console.error('❌ DATABASE COLUMN ERROR - Column does not exist:', err.message);
+            return res.status(500).json({ 
+                message: "Database configuration error. Please contact support." 
+            });
         }
         
         // Generic error
@@ -502,7 +509,7 @@ const registerUser = async (req, res, next) => {
 };
 
 // -----------------------------
-// LOGIN USER (unchanged)
+// UPDATED: LOGIN USER - Uses CORRECT table names
 // -----------------------------
 const loginUser = async (req, res, next) => {
     const { email, password } = req.body;
@@ -534,61 +541,61 @@ const loginUser = async (req, res, next) => {
             return res.status(401).json({ message: "Invalid login credentials." });
         }
 
+        // FIXED: Uses CORRECT table names - 'cleaners' instead of 'cleaner_profiles'
         const profileQuery = `
             SELECT 
                 u.*,
-                cp.cleaner_type, cp.experience_years, cp.bio, cp.id_url,
-                cp.profile_photo_url, cp.business_reg_url,
-                cp.charge_hourly, cp.charge_daily, cp.charge_per_contract,
-                cp.charge_per_contract_negotiable, cp.account_number, cp.bank_name,
-                clp.client_type, clp.company_name, clp.company_address,
-                ARRAY_AGG(DISTINCT s.name) as services
+                c.cleaner_type, c.experience_years, c.bio,
+                c.charge_hourly, c.charge_daily, c.charge_per_contract,
+                c.charge_per_contract_negotiable, c.account_number, c.bank_name,
+                cl.client_type, cl.company_name
             FROM users u
-            LEFT JOIN cleaner_profiles cp ON cp.user_id = u.id AND u.role='cleaner'
-            LEFT JOIN client_profiles clp ON clp.user_id = u.id AND u.role='client'
-            LEFT JOIN cleaner_services cs ON cs.cleaner_user_id = u.id
-            LEFT JOIN services s ON s.id = cs.service_id
+            LEFT JOIN cleaners c ON c.user_id = u.id AND u.role='cleaner'
+            LEFT JOIN client_profiles cl ON cl.user_id = u.id AND u.role='client'
             WHERE u.id=$1
-            GROUP BY u.id, cp.id, clp.id;
         `;
 
         const fullUser = (await pool.query(profileQuery, [user.id])).rows[0];
-        delete fullUser.password_hash;
+        
+        if (fullUser) {
+            delete fullUser.password_hash;
+        }
 
         const token = generateToken(user.id, user.is_admin);
 
         console.log('✅ Login successful for:', email);
-        res.json({ token, user: fullUser });
+        res.json({ 
+            token, 
+            user: fullUser || user // Fallback to basic user if join fails
+        });
     } catch (err) {
         console.error('❌ Login error:', err);
-        next(err);
+        res.status(500).json({ 
+            message: "Login failed due to server error. Please try again." 
+        });
     }
 };
 
 // -----------------------------
-// GET CURRENT USER /me (updated for SignupForm)
+// UPDATED: GET CURRENT USER /me - Uses CORRECT table names
 // -----------------------------
 const getMe = async (req, res, next) => {
     try {
         console.log('👤 Fetching user profile for ID:', req.user.id);
         
+        // FIXED: Uses CORRECT table names - 'cleaners' instead of 'cleaner_profiles'
         const result = await pool.query(
             `
             SELECT 
                 u.*,
-                cp.cleaner_type, cp.experience_years, cp.bio, cp.id_url,
-                cp.profile_photo_url, cp.business_reg_url,
-                cp.charge_hourly, cp.charge_daily, cp.charge_per_contract,
-                cp.charge_per_contract_negotiable, cp.account_number, cp.bank_name,
-                clp.client_type, clp.company_name, clp.company_address,
-                ARRAY_AGG(DISTINCT s.name) as services
+                c.cleaner_type, c.experience_years, c.bio,
+                c.charge_hourly, c.charge_daily, c.charge_per_contract,
+                c.charge_per_contract_negotiable, c.account_number, c.bank_name,
+                cl.client_type, cl.company_name
             FROM users u
-            LEFT JOIN cleaner_profiles cp ON cp.user_id = u.id AND u.role='cleaner'
-            LEFT JOIN client_profiles clp ON clp.user_id = u.id AND u.role='client'
-            LEFT JOIN cleaner_services cs ON cs.cleaner_user_id = u.id
-            LEFT JOIN services s ON s.id = cs.service_id
+            LEFT JOIN cleaners c ON c.user_id = u.id AND u.role='cleaner'
+            LEFT JOIN client_profiles cl ON cl.user_id = u.id AND u.role='client'
             WHERE u.id=$1
-            GROUP BY u.id, cp.id, clp.id;
             `,
             [req.user.id]
         );
@@ -605,12 +612,14 @@ const getMe = async (req, res, next) => {
         res.json(user);
     } catch (err) {
         console.error('❌ GetMe error:', err);
-        next(err);
+        res.status(500).json({ 
+            message: "Failed to fetch user profile. Please try again." 
+        });
     }
 };
 
 module.exports = {
     registerUser,
     loginUser,
-    getMe,
+    getMe
 };
