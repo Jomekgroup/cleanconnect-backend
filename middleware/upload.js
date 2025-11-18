@@ -1,14 +1,14 @@
 // File: middleware/upload.js
-// FIXED VERSION - Uses memory storage to provide file buffers
+// UPDATED VERSION - Compatible with SignupForm file structure
 
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('../utils/cloudinary');
 
 /**
- * Allowed MIME types per field
- * - selfie, profilePhoto              -> images only
- * - governmentId, businessRegDoc, id  -> images or pdf
+ * Allowed MIME types per field - UPDATED FOR SIGNUPFORM
+ * - profilePhoto -> images only
+ * - governmentId, idDocument, businessRegDoc -> images or pdf
  */
 const ALLOWED = {
   image: ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'],
@@ -17,44 +17,25 @@ const ALLOWED = {
 
 /**
  * Max file size per file (bytes)
- * 5 MB default - adjust if needed
+ * 5 MB default - matches frontend
  */
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 /**
- * FIXED: Use memory storage to get file buffers for validation
+ * Use memory storage to get file buffers for validation
  * Then manually upload to Cloudinary in the controller
  */
 const memoryStorage = multer.memoryStorage();
 
 /**
- * Cloudinary storage for actual file uploads (optional - can use memory storage only)
- */
-const cloudinaryStorage = new CloudinaryStorage({
-  cloudinary,
-  params: async (req, file) => {
-    let folder = 'cleanconnect/others';
-    if (['selfie'].includes(file.fieldname)) folder = 'cleanconnect/selfies';
-    if (['profilePhoto'].includes(file.fieldname)) folder = 'cleanconnect/profiles';
-    if (['governmentId', 'idDocument'].includes(file.fieldname)) folder = 'cleanconnect/ids';
-    if (['businessRegDoc'].includes(file.fieldname)) folder = 'cleanconnect/business_docs';
-
-    return {
-      folder,
-      resource_type: 'auto',
-    };
-  },
-});
-
-/**
- * Enhanced Multer file filter with better error messages
+ * Enhanced Multer file filter with better error messages - UPDATED FIELDS
  */
 const fileFilter = (req, file, cb) => {
   const field = file.fieldname;
 
-  // decide allowed list based on field type
+  // decide allowed list based on field type - UPDATED FOR SIGNUPFORM
   let allowed = ALLOWED.imageOrPdf;
-  if (['selfie', 'profilePhoto'].includes(field)) allowed = ALLOWED.image;
+  if (['profilePhoto'].includes(field)) allowed = ALLOWED.image;
   if (['governmentId', 'idDocument', 'businessRegDoc'].includes(field)) allowed = ALLOWED.imageOrPdf;
 
   if (allowed.includes(file.mimetype)) {
@@ -69,22 +50,10 @@ const fileFilter = (req, file, cb) => {
 };
 
 /**
- * FIXED: Use memory storage to get file buffers
+ * UPDATED: Memory storage parser with SignupForm fields
  */
 const memoryParser = multer({
-  storage: memoryStorage, // Use memory storage to get buffers
-  fileFilter,
-  limits: { 
-    fileSize: MAX_FILE_SIZE,
-    files: 10
-  },
-});
-
-/**
- * Cloudinary parser (optional - if you want direct Cloudinary uploads)
- */
-const cloudinaryParser = multer({
-  storage: cloudinaryStorage,
+  storage: memoryStorage,
   fileFilter,
   limits: { 
     fileSize: MAX_FILE_SIZE,
@@ -131,14 +100,13 @@ const handleMulterErrors = (err, req, res, next) => {
 };
 
 /**
- * FIXED: Main upload middleware that provides file buffers
- * This is the middleware you should use in your routes
+ * UPDATED: Main upload middleware for SignupForm
+ * Removed selfie field, added governmentId field
  */
 const flexibleUpload = (req, res, next) => {
-  console.log('🔄 Starting file upload processing with memory storage...');
+  console.log('🔄 Starting file upload processing for SignupForm...');
   
   memoryParser.fields([
-    { name: 'selfie', maxCount: 1 },
     { name: 'idDocument', maxCount: 1 },
     { name: 'governmentId', maxCount: 1 },
     { name: 'profilePhoto', maxCount: 1 },
@@ -149,7 +117,7 @@ const flexibleUpload = (req, res, next) => {
     }
     
     // Log ALL file information for debugging
-    console.log('🔍 FILE UPLOAD DEBUG INFO:');
+    console.log('🔍 SIGNUPFORM FILE UPLOAD DEBUG INFO:');
     console.log('Content-Type:', req.headers['content-type']);
     console.log('Request body keys:', Object.keys(req.body));
     
@@ -168,10 +136,20 @@ const flexibleUpload = (req, res, next) => {
         });
       });
       
-      // Remove empty files but KEEP files with buffers (they will be uploaded to Cloudinary in controller)
+      // Handle governmentId/idDocument field mapping
+      // Both fields should point to the same file for compatibility
+      if (req.files.governmentId && !req.files.idDocument) {
+        req.files.idDocument = req.files.governmentId;
+        console.log('🔄 Mapped governmentId to idDocument for compatibility');
+      } else if (req.files.idDocument && !req.files.governmentId) {
+        req.files.governmentId = req.files.idDocument;
+        console.log('🔄 Mapped idDocument to governmentId for compatibility');
+      }
+      
+      // Remove empty files but KEEP files with buffers
       Object.keys(req.files).forEach(fieldName => {
         req.files[fieldName] = req.files[fieldName].filter(file => 
-          file && file.size > 0 // Only check size, buffer will be available with memoryStorage
+          file && file.size > 0
         );
         
         if (req.files[fieldName].length === 0) {
@@ -181,34 +159,7 @@ const flexibleUpload = (req, res, next) => {
       
       console.log('✅ Final files after filtering:', req.files ? Object.keys(req.files) : 'None');
     } else {
-      console.log('❌ No files found in req.files - this indicates no files were uploaded');
-    }
-    
-    next();
-  });
-};
-
-/**
- * Alternative: Cloudinary direct upload middleware
- * Use this if you want files uploaded directly to Cloudinary
- */
-const cloudinaryUpload = (req, res, next) => {
-  console.log('🔄 Starting file upload processing with Cloudinary storage...');
-  
-  cloudinaryParser.fields([
-    { name: 'selfie', maxCount: 1 },
-    { name: 'idDocument', maxCount: 1 },
-    { name: 'governmentId', maxCount: 1 },
-    { name: 'profilePhoto', maxCount: 1 },
-    { name: 'businessRegDoc', maxCount: 1 },
-  ])(req, res, (err) => {
-    if (err) {
-      return handleMulterErrors(err, req, res, next);
-    }
-    
-    console.log('✅ Cloudinary upload completed');
-    if (req.files) {
-      console.log('📁 Files uploaded to Cloudinary:', Object.keys(req.files));
+      console.log('❌ No files found in req.files');
     }
     
     next();
@@ -246,10 +197,8 @@ const uploadFields = flexibleUpload;
 
 module.exports = {
   parser: memoryParser,
-  uploadFields, // Use flexibleUpload for backward compatibility
-  flexibleUpload, // RECOMMENDED: Use this for memory storage with buffers
-  cloudinaryUpload, // Alternative: Direct Cloudinary uploads (no buffers)
-  strictUpload,
+  uploadFields,
+  flexibleUpload,
   handleMulterErrors,
   MAX_FILE_SIZE,
   ALLOWED

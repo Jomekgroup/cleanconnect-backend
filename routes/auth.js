@@ -12,11 +12,11 @@ const { flexibleUpload, handleMulterErrors } = require('../middleware/upload');
 // Routes
 // ---------------------------
 
-// Register with FIXED file upload handling
+// Register with FIXED file upload handling - UPDATED FOR NEW SIGNUPFORM
 router.post('/register', 
   (req, res, next) => {
     console.log('🚀 Registration request received');
-    console.log('📝 Request body fields:', Object.keys(req.body));
+    console.log('📝 Request content-type:', req.headers['content-type']);
     next();
   },
   flexibleUpload, 
@@ -24,6 +24,7 @@ router.post('/register',
   (req, res, next) => {
     console.log('✅ File upload middleware completed successfully');
     console.log('📁 Files available for controller:', req.files ? Object.keys(req.files) : 'None');
+    console.log('📝 Form fields received:', Object.keys(req.body));
     next();
   },
   registerUser

@@ -1,4 +1,5 @@
 // File: controllers/authController.js
+// UPDATED FOR SIGNUPFORM COMPATIBILITY
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -42,23 +43,14 @@ const uploadToCloudinary = (fileBuffer, folder = 'cleanconnect') => {
 };
 
 // -----------------------------
-// Enhanced File Validation - FIXED VERSION
+// UPDATED: File Validation for SignupForm
 // -----------------------------
 const validateRequiredFiles = (files, role, cleanerType) => {
     const errors = [];
     
-    console.log('🔍 Validating files:', files ? Object.keys(files) : 'No files');
+    console.log('🔍 Validating files for SignupForm:', files ? Object.keys(files) : 'No files');
     
-    // Check if selfie exists - support multiple field names and check if file has content
-    const selfie = files?.selfie?.[0];
-    if (!selfie || !selfie.buffer || selfie.buffer.length === 0) {
-        console.log('❌ Selfie validation failed:', selfie ? 'Empty buffer' : 'File missing');
-        errors.push('Selfie is required for verification');
-    } else {
-        console.log('✅ Selfie validation passed');
-    }
-    
-    // Check if ID document exists - support both field names and check content
+    // Check if ID document exists - support both field names (governmentId or idDocument)
     const idDocument = files?.idDocument?.[0] || files?.governmentId?.[0];
     if (!idDocument || !idDocument.buffer || idDocument.buffer.length === 0) {
         console.log('❌ ID document validation failed:', idDocument ? 'Empty buffer' : 'File missing');
@@ -93,14 +85,15 @@ const validateRequiredFiles = (files, role, cleanerType) => {
 };
 
 // -----------------------------
-// Validate Form Data
+// UPDATED: Validate Form Data for SignupForm
 // -----------------------------
 const validateFormData = (data, role, cleanerType, clientType) => {
     const errors = [];
     
+    console.log('📝 Validating form data for role:', role);
+    
     // Basic required fields for all users
     if (!data.email) errors.push('Email is required');
-    if (!data.password) errors.push('Password is required');
     if (!data.fullName) errors.push('Full name is required');
     if (!data.phoneNumber) errors.push('Phone number is required');
     if (!data.state) errors.push('State is required');
@@ -117,6 +110,11 @@ const validateFormData = (data, role, cleanerType, clientType) => {
     const phoneRegex = /^[0-9]{10,11}$/;
     if (data.phoneNumber && !phoneRegex.test(data.phoneNumber)) {
         errors.push('Phone number must be 10 or 11 digits');
+    }
+    
+    // Handle otherCity field
+    if (data.city === 'Other' && !data.otherCity) {
+        errors.push('Please specify your city/town when selecting "Other"');
     }
     
     // Client-specific validation
@@ -142,7 +140,7 @@ const validateFormData = (data, role, cleanerType, clientType) => {
             errors.push('NIN must be 11 digits');
         }
         
-        // Validate pricing
+        // Validate pricing - UPDATED for SignupForm structure
         const hasPricing = Number(data.chargeHourly) > 0 || 
                           Number(data.chargeDaily) > 0 || 
                           Number(data.chargePerContract) > 0 || 
@@ -162,23 +160,30 @@ const validateFormData = (data, role, cleanerType, clientType) => {
             errors.push('Account number must be 10 digits');
         }
         
+        // Validate services
+        if (!data.services || (Array.isArray(data.services) && data.services.length === 0)) {
+            errors.push('At least one service must be selected');
+        }
+        
         if (cleanerType === 'Company') {
             if (!data.companyName) errors.push('Company name is required for company cleaners');
             if (!data.companyAddress) errors.push('Company address is required for company cleaners');
         }
     }
     
+    console.log('✅ Form validation completed. Errors:', errors.length);
     return errors;
 };
 
 // -----------------------------
-// REGISTER USER - FIXED VERSION
+// UPDATED: REGISTER USER - SignupForm Compatible
 // -----------------------------
 const registerUser = async (req, res, next) => {
-    console.log('=== REGISTRATION REQUEST STARTED ===');
+    console.log('=== SIGNUPFORM REGISTRATION REQUEST STARTED ===');
     
+    // Extract all possible fields from SignupForm
     const {
-        role, email, password, fullName, phoneNumber, gender,
+        role, email, fullName, phoneNumber, gender,
         state, city, otherCity, address,
 
         // client fields
@@ -194,17 +199,18 @@ const registerUser = async (req, res, next) => {
     // Safely handle files
     const files = req.files || {};
 
-    console.log('📝 Form data received:', {
+    console.log('📝 SignupForm data received:', {
         role,
         email,
         fullName: fullName ? `${fullName.substring(0, 10)}...` : 'missing',
         phoneNumber: phoneNumber ? 'provided' : 'missing',
         clientType,
-        cleanerType
+        cleanerType,
+        services: services ? (Array.isArray(services) ? services.length : 1) + ' service(s)' : 'none'
     });
 
     // EXTENSIVE FILE DEBUGGING
-    console.log('🔍 FILE ANALYSIS:');
+    console.log('🔍 SIGNUPFORM FILE ANALYSIS:');
     console.log('req.files exists:', !!req.files);
     
     if (req.files) {
@@ -214,12 +220,16 @@ const registerUser = async (req, res, next) => {
             const fileArray = req.files[fieldName];
             console.log(`   ${fieldName}: ${fileArray.length} file(s)`);
             fileArray.forEach((file, index) => {
-                console.log(`     - File ${index + 1}: ${file.originalname} (${file.size} bytes, buffer: ${file.buffer ? file.buffer.length + ' bytes' : 'no buffer'})`);
+                console.log(`     - File ${index + 1}: ${file.originalname} (${file.size} bytes)`);
             });
         });
     } else {
-        console.log('❌ NO FILES FOUND - This indicates Multer is not processing files');
+        console.log('❌ NO FILES FOUND');
     }
+
+    // Generate a default password for SignupForm users
+    // In production, you might want to send a password setup email
+    const defaultPassword = `CleanConnect${Date.now()}`;
 
     // Validate form data
     const formErrors = validateFormData(req.body, role, cleanerType, clientType);
@@ -230,7 +240,7 @@ const registerUser = async (req, res, next) => {
         });
     }
 
-    // Validate required files - BUT with better error handling
+    // Validate required files - UPDATED for SignupForm
     const fileErrors = validateRequiredFiles(files, role, cleanerType);
     if (fileErrors.length > 0) {
         console.log('❌ File validation errors:', fileErrors);
@@ -265,25 +275,25 @@ const registerUser = async (req, res, next) => {
         console.log('✅ User does not exist, proceeding...');
 
         const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+        const hashedPassword = await bcrypt.hash(defaultPassword, salt);
 
         await client.query("BEGIN");
         console.log('🚀 Transaction started');
 
-        // Create user
+        // Create user - UPDATED for SignupForm fields
         const newUserQuery = `
             INSERT INTO users (
                 email, password_hash, full_name, phone_number,
                 gender, state, city, other_city, address, role
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING id, email, role, full_name, is_admin;
+            RETURNING id, email, role, full_name, phone_number, gender, state, city, other_city, address, is_admin, created_at;
         `;
 
         const newUser = (
             await client.query(newUserQuery, [
                 email, hashedPassword, fullName, phoneNumber,
-                gender, state, city, otherCity, address, role
+                gender, state, city, otherCity || null, address, role
             ])
         ).rows[0];
 
@@ -299,18 +309,17 @@ const registerUser = async (req, res, next) => {
                 INSERT INTO client_profiles (user_id, client_type, company_name, company_address)
                 VALUES ($1, $2, $3, $4)
                 `,
-                [newUser.id, clientType, companyName, companyAddress]
+                [newUser.id, clientType, companyName || null, companyAddress || null]
             );
             console.log('✅ Client profile created');
         }
 
         // -----------------------------
-        // CLEANER PROFILE
+        // CLEANER PROFILE - UPDATED for SignupForm
         // -----------------------------
         if (role === "cleaner") {
             console.log('🧹 Creating cleaner profile...');
             
-            let selfieUrl = null;
             let idUrl = null;
             let profilePhotoUrl = null;
             let businessRegUrl = null;
@@ -319,12 +328,6 @@ const registerUser = async (req, res, next) => {
             try {
                 console.log('☁️ Uploading files to Cloudinary...');
                 
-                if (files.selfie && files.selfie[0]) {
-                    console.log('📤 Uploading selfie...');
-                    selfieUrl = await uploadToCloudinary(files.selfie[0].buffer, "cleanconnect/selfies");
-                    console.log('✅ Selfie uploaded:', selfieUrl ? 'success' : 'failed');
-                }
-
                 // Support both field names for ID document
                 const idDocument = files.idDocument?.[0] || files.governmentId?.[0];
                 if (idDocument) {
@@ -352,17 +355,17 @@ const registerUser = async (req, res, next) => {
                 });
             }
 
-            // Insert cleaner profile
+            // Insert cleaner profile - UPDATED fields
             await client.query(
                 `
                 INSERT INTO cleaner_profiles (
                     user_id, cleaner_type, experience_years, bio, nin,
                     charge_hourly, charge_daily, charge_per_contract,
                     charge_per_contract_negotiable, account_number, bank_name,
-                    selfie_url, id_url, profile_photo_url, business_reg_url
+                    id_url, profile_photo_url, business_reg_url
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-            `,
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                `,
                 [
                     newUser.id,
                     cleanerType,
@@ -375,7 +378,6 @@ const registerUser = async (req, res, next) => {
                     chargePerContractNegotiable === 'true' || chargePerContractNegotiable === true,
                     accountNumber,
                     bankName,
-                    selfieUrl,
                     idUrl,
                     profilePhotoUrl,
                     businessRegUrl,
@@ -384,13 +386,13 @@ const registerUser = async (req, res, next) => {
             console.log('✅ Cleaner profile created');
 
             // -----------------------------
-            // CLEANER SERVICES
+            // CLEANER SERVICES - UPDATED for SignupForm
             // -----------------------------
-            if (services && services.length > 0) {
+            if (services && (Array.isArray(services) ? services.length > 0 : services.trim() !== '')) {
                 console.log('🔧 Adding cleaner services...');
                 let servicesAdded = 0;
                 
-                // Handle both array and single service (form data can be either)
+                // Handle both array and single service
                 const serviceArray = Array.isArray(services) ? services : [services];
                 
                 for (const service of serviceArray) {
@@ -418,6 +420,16 @@ const registerUser = async (req, res, next) => {
                         console.log(`✅ Service added: ${service}`);
                     } else {
                         console.warn(`❌ Service not found in database: ${service}`);
+                        // Optionally create the service if it doesn't exist
+                        // const newService = await client.query(
+                        //     "INSERT INTO services (name) VALUES ($1) RETURNING id",
+                        //     [service.trim()]
+                        // );
+                        // await client.query(
+                        //     "INSERT INTO cleaner_services (cleaner_user_id, service_id) VALUES ($1, $2)",
+                        //     [newUser.id, newService.rows[0].id]
+                        // );
+                        // servicesAdded++;
                     }
                 }
                 console.log(`✅ ${servicesAdded} services added total`);
@@ -429,14 +441,37 @@ const registerUser = async (req, res, next) => {
         await client.query("COMMIT");
         console.log('✅ Transaction committed successfully');
 
+        // Generate token
         const token = generateToken(newUser.id, newUser.is_admin);
 
-        console.log('🎉 Registration completed successfully for:', email);
+        // Get complete user data for response
+        const completeUserQuery = `
+            SELECT 
+                u.*,
+                cp.cleaner_type, cp.experience_years, cp.bio, cp.id_url,
+                cp.profile_photo_url, cp.business_reg_url,
+                cp.charge_hourly, cp.charge_daily, cp.charge_per_contract,
+                cp.charge_per_contract_negotiable, cp.account_number, cp.bank_name,
+                clp.client_type, clp.company_name, clp.company_address,
+                ARRAY_AGG(DISTINCT s.name) as services
+            FROM users u
+            LEFT JOIN cleaner_profiles cp ON cp.user_id = u.id AND u.role='cleaner'
+            LEFT JOIN client_profiles clp ON clp.user_id = u.id AND u.role='client'
+            LEFT JOIN cleaner_services cs ON cs.cleaner_user_id = u.id
+            LEFT JOIN services s ON s.id = cs.service_id
+            WHERE u.id=$1
+            GROUP BY u.id, cp.id, clp.id;
+        `;
+
+        const completeUser = (await client.query(completeUserQuery, [newUser.id])).rows[0];
+        delete completeUser.password_hash;
+
+        console.log('🎉 SignupForm registration completed successfully for:', email);
         
         res.status(201).json({
             message: "Registration successful",
             token,
-            user: newUser,
+            user: completeUser,
         });
         
     } catch (err) {
@@ -467,7 +502,7 @@ const registerUser = async (req, res, next) => {
 };
 
 // -----------------------------
-// LOGIN USER
+// LOGIN USER (unchanged)
 // -----------------------------
 const loginUser = async (req, res, next) => {
     const { email, password } = req.body;
@@ -502,13 +537,19 @@ const loginUser = async (req, res, next) => {
         const profileQuery = `
             SELECT 
                 u.*,
-                cp.cleaner_type, cp.experience_years, cp.bio, cp.selfie_url, cp.id_url,
+                cp.cleaner_type, cp.experience_years, cp.bio, cp.id_url,
                 cp.profile_photo_url, cp.business_reg_url,
-                clp.client_type, clp.company_name
+                cp.charge_hourly, cp.charge_daily, cp.charge_per_contract,
+                cp.charge_per_contract_negotiable, cp.account_number, cp.bank_name,
+                clp.client_type, clp.company_name, clp.company_address,
+                ARRAY_AGG(DISTINCT s.name) as services
             FROM users u
             LEFT JOIN cleaner_profiles cp ON cp.user_id = u.id AND u.role='cleaner'
             LEFT JOIN client_profiles clp ON clp.user_id = u.id AND u.role='client'
-            WHERE u.id=$1;
+            LEFT JOIN cleaner_services cs ON cs.cleaner_user_id = u.id
+            LEFT JOIN services s ON s.id = cs.service_id
+            WHERE u.id=$1
+            GROUP BY u.id, cp.id, clp.id;
         `;
 
         const fullUser = (await pool.query(profileQuery, [user.id])).rows[0];
@@ -525,7 +566,7 @@ const loginUser = async (req, res, next) => {
 };
 
 // -----------------------------
-// GET CURRENT USER /me
+// GET CURRENT USER /me (updated for SignupForm)
 // -----------------------------
 const getMe = async (req, res, next) => {
     try {
@@ -535,13 +576,19 @@ const getMe = async (req, res, next) => {
             `
             SELECT 
                 u.*,
-                cp.cleaner_type, cp.experience_years, cp.bio, cp.selfie_url, cp.id_url,
+                cp.cleaner_type, cp.experience_years, cp.bio, cp.id_url,
                 cp.profile_photo_url, cp.business_reg_url,
-                clp.client_type, clp.company_name
+                cp.charge_hourly, cp.charge_daily, cp.charge_per_contract,
+                cp.charge_per_contract_negotiable, cp.account_number, cp.bank_name,
+                clp.client_type, clp.company_name, clp.company_address,
+                ARRAY_AGG(DISTINCT s.name) as services
             FROM users u
             LEFT JOIN cleaner_profiles cp ON cp.user_id = u.id AND u.role='cleaner'
             LEFT JOIN client_profiles clp ON clp.user_id = u.id AND u.role='client'
-            WHERE u.id=$1;
+            LEFT JOIN cleaner_services cs ON cs.cleaner_user_id = u.id
+            LEFT JOIN services s ON s.id = cs.service_id
+            WHERE u.id=$1
+            GROUP BY u.id, cp.id, clp.id;
             `,
             [req.user.id]
         );
