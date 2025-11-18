@@ -180,6 +180,13 @@ const validateFormData = (data, role, cleanerType, clientType) => {
 // -----------------------------
 const registerUser = async (req, res, next) => {
     console.log('=== SIGNUPFORM REGISTRATION REQUEST STARTED ===');
+    // Debug: check which database we're connected to
+try {
+    const dbName = await pool.query('SELECT current_database();');
+    console.log('🔍 Connected database:', dbName.rows[0].current_database);
+} catch (err) {
+    console.error('❌ Error fetching current database:', err);
+}
     
     // Extract all possible fields from SignupForm
     const {
