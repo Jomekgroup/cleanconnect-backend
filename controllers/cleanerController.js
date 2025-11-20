@@ -12,8 +12,8 @@ const pool = global.db;
  */
 const getAllCleaners = async (req, res, next) => {
     try {
-        // Step 1: Get all cleaners with their profile info and calculated ratings.
-        // FIXED: Uses 'cleaners' table instead of 'cleaner_profiles'
+        // FIXED: Changed 'cleaner_profiles' to 'cleaners'
+        // FIXED: Changed alias 'cp' to 'c' to match the new table schema
         const cleanersQuery = `
             SELECT 
                 u.id,
@@ -35,7 +35,6 @@ const getAllCleaners = async (req, res, next) => {
             JOIN cleaners c ON u.id = c.user_id
             LEFT JOIN reviews r ON u.id = r.cleaner_id
             WHERE u.role = 'cleaner' 
-            -- AND u.is_suspended = false (Removed if column doesn't exist yet)
             GROUP BY u.id, c.user_id, c.bio, c.experience_years, c.is_verified, 
                      c.charge_hourly, c.charge_daily, c.charge_per_contract, 
                      c.charge_per_contract_negotiable, c.profile_photo_url
@@ -46,7 +45,7 @@ const getAllCleaners = async (req, res, next) => {
         // Step 2: Get all services for all cleaners in a single, efficient query.
         const cleanerIds = cleaners.map(c => c.id);
         if (cleanerIds.length === 0) {
-            return res.json([]); // Return empty array if no cleaners are found
+            return res.json([]); 
         }
 
         const servicesQuery = `
@@ -83,10 +82,11 @@ const getAllCleaners = async (req, res, next) => {
 const getCleanerById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        // FIXED: Uses 'cleaners' table
+        // FIXED: Changed 'cleaner_profiles' to 'cleaners'
         const cleanerQuery = `
              SELECT u.id, u.full_name as name, u.state, u.city, u.other_city, c.*
-             FROM users u JOIN cleaners c ON u.id = c.user_id
+             FROM users u 
+             JOIN cleaners c ON u.id = c.user_id
              WHERE u.id = $1 AND u.role = 'cleaner';
         `;
         const cleanerResult = await pool.query(cleanerQuery, [id]);
@@ -123,11 +123,10 @@ const aiSearchCleaners = async (req, res, next) => {
     }
 
     try {
-        // Initialize Gemini
-        // Note: Ensure GOOGLE_GENAI_API_KEY is in your Render env variables
+        // Initialize Gemini with the new library
         const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY });
 
-        // FIXED: Uses 'cleaners' table
+        // FIXED: Changed 'cleaner_profiles' to 'cleaners'
         const cleanersDataResult = await pool.query(`
             SELECT u.id, u.full_name, u.state, u.city, c.bio,
                    (SELECT array_agg(s.name) FROM cleaner_services cs JOIN services s ON cs.service_id = s.id WHERE cs.cleaner_user_id = u.id) as services
@@ -151,7 +150,6 @@ const aiSearchCleaners = async (req, res, next) => {
             Example Response: ["uuid-123", "uuid-456", "uuid-789"]
         `;
 
-        // Use a model version available in the library (gemini-1.5-flash is common now)
         const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await model.generateContent(prompt);
         const response = await result.response;
@@ -170,7 +168,6 @@ const aiSearchCleaners = async (req, res, next) => {
 
     } catch (error) {
         console.error("AI Search Error:", error);
-        // Fallback: Return empty list instead of 500 error if AI fails
         res.json({ matchingIds: [] });
     }
 };
