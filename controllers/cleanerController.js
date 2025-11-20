@@ -12,7 +12,7 @@ const pool = global.db;
  */
 const getAllCleaners = async (req, res, next) => {
     try {
-        // FIXED: Changed 'cleaner_profiles' to 'cleaners'
+        // FIXED: Uses 'cleaners' table instead of 'cleaner_profiles'
         // FIXED: Changed alias 'cp' to 'c' to match the new table schema
         const cleanersQuery = `
             SELECT 
@@ -82,7 +82,7 @@ const getAllCleaners = async (req, res, next) => {
 const getCleanerById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        // FIXED: Changed 'cleaner_profiles' to 'cleaners'
+        // FIXED: Uses 'cleaners' table
         const cleanerQuery = `
              SELECT u.id, u.full_name as name, u.state, u.city, u.other_city, c.*
              FROM users u 
@@ -123,10 +123,10 @@ const aiSearchCleaners = async (req, res, next) => {
     }
 
     try {
-        // Initialize Gemini with the new library
+        // Initialize Gemini
         const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY });
 
-        // FIXED: Changed 'cleaner_profiles' to 'cleaners'
+        // FIXED: Uses 'cleaners' table
         const cleanersDataResult = await pool.query(`
             SELECT u.id, u.full_name, u.state, u.city, c.bio,
                    (SELECT array_agg(s.name) FROM cleaner_services cs JOIN services s ON cs.service_id = s.id WHERE cs.cleaner_user_id = u.id) as services
