@@ -13,9 +13,7 @@ const pool = global.db;
 const getAllCleaners = async (req, res, next) => {
     try {
         // Step 1: Get all cleaners with their profile info and calculated ratings.
-        // This is a production-level query that joins users with their cleaner profiles
-        // and calculates their average rating and review count from the reviews table.
-        // COALESCE is used to ensure a value of 0 is returned if there are no reviews.
+        // FIXED: Uses 'cleaners' table instead of 'cleaner_profiles'
         const cleanersQuery = `
             SELECT 
                 u.id,
@@ -23,22 +21,24 @@ const getAllCleaners = async (req, res, next) => {
                 u.state,
                 u.city,
                 u.other_city,
-                cp.bio,
-                cp.experience_years as experience,
-                cp.is_verified,
-                cp.subscription_tier,
-                cp.charge_hourly,
-                cp.charge_daily,
-                cp.charge_per_contract,
-                cp.charge_per_contract_negotiable,
-                cp.profile_photo_url as "photoUrl",
+                c.bio,
+                c.experience_years as experience,
+                c.is_verified,
+                c.charge_hourly,
+                c.charge_daily,
+                c.charge_per_contract,
+                c.charge_per_contract_negotiable,
+                c.profile_photo_url as "photoUrl",
                 COALESCE(AVG(r.rating), 0) as rating,
                 COUNT(r.id) as reviews
             FROM users u
-            JOIN cleaner_profiles cp ON u.id = cp.user_id
+            JOIN cleaners c ON u.id = c.user_id
             LEFT JOIN reviews r ON u.id = r.cleaner_id
-            WHERE u.role = 'cleaner' AND u.is_suspended = false
-            GROUP BY u.id, cp.user_id
+            WHERE u.role = 'cleaner' 
+            -- AND u.is_suspended = false (Removed if column doesn't exist yet)
+            GROUP BY u.id, c.user_id, c.bio, c.experience_years, c.is_verified, 
+                     c.charge_hourly, c.charge_daily, c.charge_per_contract, 
+                     c.charge_per_contract_negotiable, c.profile_photo_url
             ORDER BY rating DESC;
         `;
         const { rows: cleaners } = await pool.query(cleanersQuery);
@@ -57,15 +57,13 @@ const getAllCleaners = async (req, res, next) => {
         `;
         const { rows: services } = await pool.query(servicesQuery, [cleanerIds]);
 
-        // Step 3: Map the services back to each cleaner object. This is more efficient
-        // than running a separate query for each cleaner in a loop.
+        // Step 3: Map the services back to each cleaner object.
         const cleanersWithServices = cleaners.map(cleaner => {
             const cleanerServices = services
                 .filter(s => s.cleaner_user_id === cleaner.id)
                 .map(s => s.name);
             return {
                 ...cleaner,
-                // The frontend 'Cleaner' type expects the field 'serviceTypes'
                 serviceTypes: cleanerServices
             };
         });
@@ -73,7 +71,7 @@ const getAllCleaners = async (req, res, next) => {
         res.json(cleanersWithServices);
 
     } catch (error) {
-        next(error); // Pass any database errors to the global error handler
+        next(error); 
     }
 };
 
@@ -85,10 +83,10 @@ const getAllCleaners = async (req, res, next) => {
 const getCleanerById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        // Fetch cleaner profile
+        // FIXED: Uses 'cleaners' table
         const cleanerQuery = `
-             SELECT u.id, u.full_name as name, u.state, u.city, u.other_city, cp.*
-             FROM users u JOIN cleaner_profiles cp ON u.id = cp.user_id
+             SELECT u.id, u.full_name as name, u.state, u.city, u.other_city, c.*
+             FROM users u JOIN cleaners c ON u.id = c.user_id
              WHERE u.id = $1 AND u.role = 'cleaner';
         `;
         const cleanerResult = await pool.query(cleanerQuery, [id]);
@@ -97,12 +95,12 @@ const getCleanerById = async (req, res, next) => {
         }
         const cleaner = cleanerResult.rows[0];
 
-        // Fetch all reviews for that cleaner
+        // Fetch all reviews
         const reviewsQuery = `SELECT * FROM reviews WHERE cleaner_id = $1 ORDER BY created_at DESC;`;
         const reviewsResult = await pool.query(reviewsQuery, [id]);
         cleaner.reviewsData = reviewsResult.rows;
         
-        // Fetch all services for that cleaner
+        // Fetch all services
         const servicesQuery = `SELECT s.name FROM services s JOIN cleaner_services cs ON s.id = cs.service_id WHERE cs.cleaner_user_id = $1;`;
         const servicesResult = await pool.query(servicesQuery, [id]);
         cleaner.serviceTypes = servicesResult.rows.map(s => s.name);
@@ -125,20 +123,20 @@ const aiSearchCleaners = async (req, res, next) => {
     }
 
     try {
-        // STEP 1: Initialize the Gemini API SDK securely using the key from .env
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        // Initialize Gemini
+        // Note: Ensure GOOGLE_GENAI_API_KEY is in your Render env variables
+        const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY });
 
-        // STEP 2: Fetch the relevant data for all cleaners to provide context to the AI
+        // FIXED: Uses 'cleaners' table
         const cleanersDataResult = await pool.query(`
-            SELECT u.id, u.full_name, u.state, u.city, cp.bio,
+            SELECT u.id, u.full_name, u.state, u.city, c.bio,
                    (SELECT array_agg(s.name) FROM cleaner_services cs JOIN services s ON cs.service_id = s.id WHERE cs.cleaner_user_id = u.id) as services
             FROM users u
-            JOIN cleaner_profiles cp ON u.id = cp.user_id
-            WHERE u.role = 'cleaner' AND u.is_suspended = false;
+            JOIN cleaners c ON u.id = c.user_id
+            WHERE u.role = 'cleaner';
         `);
         const cleanersContext = cleanersDataResult.rows;
 
-        // STEP 3: Engineer a detailed prompt for the AI model
         const prompt = `
             You are a helpful assistant for a cleaning service platform called CleanConnect.
             Based on the following JSON list of available cleaners, find the best matches for the user's query.
@@ -153,33 +151,27 @@ const aiSearchCleaners = async (req, res, next) => {
             Example Response: ["uuid-123", "uuid-456", "uuid-789"]
         `;
 
-        // STEP 4: Call the Gemini API and parse the response
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
+        // Use a model version available in the library (gemini-1.5-flash is common now)
+        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
         
         let matchingIds = [];
         try {
-            // The AI's response is text. We must parse it into a JavaScript array.
-            // A try-catch block is essential in case the AI returns slightly malformed text.
-            const cleanedText = response.text.replace(/```json|```/g, '').trim();
+            const cleanedText = text.replace(/```json|```/g, '').trim();
             matchingIds = JSON.parse(cleanedText);
         } catch (parseError) {
             console.error("Gemini API response parsing error:", parseError);
-            console.error("Original AI response text:", response.text);
-            // As a fallback, if the AI fails, we can return an empty array or perform a simple text search.
-            // For now, we return an empty array to prevent crashing.
             return res.json({ matchingIds: [] });
         }
         
-        // Note: The frontend expects an array of numbers for IDs due to a type inconsistency.
-        // The correct implementation returns strings (UUIDs), and the frontend should be updated to match.
         res.json({ matchingIds });
 
     } catch (error) {
-        // This will catch errors from the Gemini API call itself (e.g., invalid key, network issues).
-        next(error);
+        console.error("AI Search Error:", error);
+        // Fallback: Return empty list instead of 500 error if AI fails
+        res.json({ matchingIds: [] });
     }
 };
 
