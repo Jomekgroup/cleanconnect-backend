@@ -7,22 +7,31 @@ const path = require('path');
 const app = express();
 
 // ==========================
-// 🌍 CORS Configuration
+// 🌍 CORS Configuration (FIXED)
 // ==========================
 app.use(
   cors({
     origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
 
+      // Define allowed origins
       const allowedPatterns = [
-        /^https?:\/\/localhost:3000$/,
-        /^https:\/\/cleanconnect-frontend.*\.vercel\.app$/,
+        /^https?:\/\/localhost:3000$/,      // Create-React-App
+        /^https?:\/\/localhost:5173$/,      // Vite (Standard)
+        /^https?:\/\/localhost:5174$/,      // Vite (Backup port)
+        /\.vercel\.app$/                    // ✅ Allows ANY Vercel app (Fixes domain mismatch)
       ];
 
+      // Check if the origin matches any allowed pattern
       const isAllowed = allowedPatterns.some((pattern) => pattern.test(origin));
-      if (isAllowed) return callback(null, true);
-      console.warn('❌ CORS blocked for origin:', origin);
-      return callback(new Error('Not allowed by CORS'));
+
+      if (isAllowed) {
+        return callback(null, true);
+      } else {
+        console.warn('❌ CORS blocked for origin:', origin);
+        return callback(new Error('Not allowed by CORS'));
+      }
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -42,7 +51,7 @@ app.use((req, res, next) => {
 // 🧩 Middleware
 // ==========================
 app.use(express.json({ limit: '10mb' }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); // Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ==========================
 // 💾 PostgreSQL Connection
