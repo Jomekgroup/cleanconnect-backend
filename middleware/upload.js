@@ -1,9 +1,5 @@
 // File: middleware/upload.js
-// UPDATED VERSION - Compatible with SignupForm file structure
-
 const multer = require('multer');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const cloudinary = require('../utils/cloudinary');
 
 /**
  * Allowed MIME types per field - UPDATED FOR SIGNUPFORM
@@ -117,25 +113,7 @@ const flexibleUpload = (req, res, next) => {
     }
     
     // Log ALL file information for debugging
-    console.log('🔍 SIGNUPFORM FILE UPLOAD DEBUG INFO:');
-    console.log('Content-Type:', req.headers['content-type']);
-    console.log('Request body keys:', Object.keys(req.body));
-    
     if (req.files) {
-      console.log('📁 Files processed by Multer:');
-      Object.keys(req.files).forEach(fieldName => {
-        const files = req.files[fieldName];
-        console.log(`   ${fieldName}: ${files.length} file(s)`);
-        files.forEach((file, index) => {
-          console.log(`     File ${index + 1}:`);
-          console.log(`       - originalname: ${file.originalname}`);
-          console.log(`       - mimetype: ${file.mimetype}`);
-          console.log(`       - size: ${file.size} bytes`);
-          console.log(`       - buffer: ${file.buffer ? `${file.buffer.length} bytes` : 'NO BUFFER'}`);
-          console.log(`       - fieldname: ${file.fieldname}`);
-        });
-      });
-      
       // Handle governmentId/idDocument field mapping
       // Both fields should point to the same file for compatibility
       if (req.files.governmentId && !req.files.idDocument) {

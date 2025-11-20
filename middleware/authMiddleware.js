@@ -18,8 +18,6 @@ const protect = async (req, res, next) => {
             // Verify token signature and expiration
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             
-            console.log(`🔐 Token verified for user ID: ${decoded.id}`);
-
             // Get database pool from global context (set in server.js)
             const pool = global.db;
             
@@ -30,7 +28,8 @@ const protect = async (req, res, next) => {
                 });
             }
 
-            // Get user from database with active status check
+            // Get user from database
+            // REMOVED 'is_active' check to match your database schema
             const userResult = await pool.query(
                 `SELECT 
                     id, 
@@ -38,19 +37,18 @@ const protect = async (req, res, next) => {
                     full_name, 
                     role, 
                     is_admin, 
-                    is_active,
                     created_at
                  FROM users 
-                 WHERE id = $1 AND is_active = true`,
+                 WHERE id = $1`,
                 [decoded.id]
             );
 
             const user = userResult.rows[0];
 
             if (!user) {
-                console.warn(`❌ User not found or inactive: ${decoded.id}`);
+                console.warn(`❌ User not found: ${decoded.id}`);
                 return res.status(401).json({ 
-                    message: 'Not authorized, user not found or account deactivated' 
+                    message: 'Not authorized, user not found' 
                 });
             }
 
@@ -61,7 +59,6 @@ const protect = async (req, res, next) => {
                 fullName: user.full_name,
                 role: user.role,
                 isAdmin: user.is_admin,
-                isActive: user.is_active,
                 createdAt: user.created_at
             };
 
@@ -75,28 +72,19 @@ const protect = async (req, res, next) => {
 
             // Handle specific JWT errors
             if (error.name === 'JsonWebTokenError') {
-                return res.status(401).json({ 
-                    message: 'Not authorized, invalid token' 
-                });
+                return res.status(401).json({ message: 'Not authorized, invalid token' });
             }
             
             if (error.name === 'TokenExpiredError') {
-                return res.status(401).json({ 
-                    message: 'Not authorized, token expired' 
-                });
+                return res.status(401).json({ message: 'Not authorized, token expired' });
             }
             
             if (error.name === 'NotBeforeError') {
-                return res.status(401).json({ 
-                    message: 'Not authorized, token not active' 
-                });
+                return res.status(401).json({ message: 'Not authorized, token not active' });
             }
 
             // Database or other errors
-            console.error('Auth middleware error:', error);
-            return res.status(500).json({ 
-                message: 'Authentication service error' 
-            });
+            return res.status(500).json({ message: 'Authentication service error' });
         }
     }
 
@@ -114,9 +102,7 @@ const protect = async (req, res, next) => {
 const admin = (req, res, next) => {
     if (!req.user) {
         console.error('❌ Admin middleware called without user context');
-        return res.status(500).json({ 
-            message: 'Authorization system error' 
-        });
+        return res.status(500).json({ message: 'Authorization system error' });
     }
 
     if (req.user && req.user.isAdmin === true) {
@@ -124,9 +110,7 @@ const admin = (req, res, next) => {
         return next();
     } else {
         console.warn(`🚫 Admin access denied: ${req.user.email}`);
-        return res.status(403).json({ 
-            message: 'Access denied. Admin privileges required.' 
-        });
+        return res.status(403).json({ message: 'Access denied. Admin privileges required.' });
     }
 };
 
@@ -138,9 +122,7 @@ const requireRole = (...allowedRoles) => {
     return (req, res, next) => {
         if (!req.user) {
             console.error('❌ Role middleware called without user context');
-            return res.status(500).json({ 
-                message: 'Authorization system error' 
-            });
+            return res.status(500).json({ message: 'Authorization system error' });
         }
 
         if (allowedRoles.includes(req.user.role) || req.user.isAdmin) {
@@ -169,10 +151,11 @@ const optionalAuth = async (req, res, next) => {
             
             const pool = global.db;
             if (pool) {
+                // REMOVED 'is_active' check here too
                 const userResult = await pool.query(
-                    `SELECT id, email, full_name, role, is_admin, is_active
+                    `SELECT id, email, full_name, role, is_admin
                      FROM users 
-                     WHERE id = $1 AND is_active = true`,
+                     WHERE id = $1`,
                     [decoded.id]
                 );
 
@@ -183,8 +166,7 @@ const optionalAuth = async (req, res, next) => {
                         email: user.email,
                         fullName: user.full_name,
                         role: user.role,
-                        isAdmin: user.is_admin,
-                        isActive: user.is_active
+                        isAdmin: user.is_admin
                     };
                     console.log(`🔓 Optional auth - User attached: ${user.email}`);
                 }
