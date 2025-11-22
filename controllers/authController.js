@@ -42,14 +42,13 @@ const uploadToCloudinary = (fileBuffer, folder = 'cleanconnect') => {
 };
 
 // -----------------------------
-// Helper: Format User for Frontend (Fixes the .split() crash)
+// Helper: Format User for Frontend
 // -----------------------------
 const formatUser = (dbUser) => {
     if (!dbUser) return null;
     return {
         id: dbUser.id,
         email: dbUser.email,
-        // ✅ CRITICAL FIX: Ensure camelCase for frontend
         fullName: dbUser.full_name || dbUser.fullName, 
         phoneNumber: dbUser.phone_number || dbUser.phoneNumber,
         gender: dbUser.gender,
@@ -59,10 +58,12 @@ const formatUser = (dbUser) => {
         address: dbUser.address,
         role: dbUser.role,
         isAdmin: dbUser.is_admin || false,
-        // ✅ CRITICAL FIX: Ensure Date exists and is camelCase
         createdAt: dbUser.created_at || new Date().toISOString(),
         
-        // Cleaner/Client specific fields (pass through if they exist)
+        // ✅ CRITICAL FIX: Map database 'profile_photo_url' to frontend 'photoUrl'
+        photoUrl: dbUser.profile_photo_url || dbUser.photoUrl || null,
+        
+        // Pass through all other fields (like bio, experience, etc.)
         ...dbUser
     };
 };
@@ -243,7 +244,7 @@ const registerUser = async (req, res) => {
         
         const token = generateToken(newUser.id, newUser.is_admin);
         
-        // ✅ FIXED: Return formatted user
+        // ✅ Return user via formatUser
         res.status(201).json({
             message: "Registration successful",
             token,
@@ -296,7 +297,7 @@ const loginUser = async (req, res) => {
 
         const token = generateToken(user.id, user.is_admin);
         
-        // ✅ FIXED: Return formatted user (CamelCase) to prevent frontend crash
+        // ✅ Return user via formatUser to ensure photoUrl is present
         res.json({ 
             token, 
             user: formatUser(fullProfile) 
@@ -335,7 +336,7 @@ const getMe = async (req, res) => {
             if (clientData.rows.length > 0) userData = { ...userData, ...clientData.rows[0] };
         }
 
-        // ✅ FIXED: Return formatted user
+        // ✅ Return user via formatUser
         res.json(formatUser(userData));
     } catch (err) {
         console.error('GetMe Error:', err);
