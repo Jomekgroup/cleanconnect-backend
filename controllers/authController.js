@@ -1,4 +1,5 @@
 // File: controllers/authController.js
+
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cloudinary = require('../utils/cloudinary');
@@ -41,12 +42,37 @@ const uploadToCloudinary = (fileBuffer, folder = 'cleanconnect') => {
 };
 
 // -----------------------------
+// Helper: Format User for Frontend (Fixes the .split() crash)
+// -----------------------------
+const formatUser = (dbUser) => {
+    if (!dbUser) return null;
+    return {
+        id: dbUser.id,
+        email: dbUser.email,
+        // ✅ CRITICAL FIX: Ensure camelCase for frontend
+        fullName: dbUser.full_name || dbUser.fullName, 
+        phoneNumber: dbUser.phone_number || dbUser.phoneNumber,
+        gender: dbUser.gender,
+        state: dbUser.state,
+        city: dbUser.city,
+        otherCity: dbUser.other_city || dbUser.otherCity,
+        address: dbUser.address,
+        role: dbUser.role,
+        isAdmin: dbUser.is_admin || false,
+        // ✅ CRITICAL FIX: Ensure Date exists and is camelCase
+        createdAt: dbUser.created_at || new Date().toISOString(),
+        
+        // Cleaner/Client specific fields (pass through if they exist)
+        ...dbUser
+    };
+};
+
+// -----------------------------
 // 1. Validation: Form Data
 // -----------------------------
 const validateFormData = (data, role, cleanerType, clientType) => {
     const errors = [];
     
-    // --- Common Fields ---
     if (!data.email) errors.push('Email is required');
     if (!data.fullName) errors.push('Full name is required');
     if (!data.phoneNumber) errors.push('Phone number is required');
@@ -60,11 +86,8 @@ const validateFormData = (data, role, cleanerType, clientType) => {
     const phoneRegex = /^[0-9]{10,11}$/;
     if (data.phoneNumber && !phoneRegex.test(data.phoneNumber)) errors.push('Phone number must be 10 or 11 digits');
     
-    if (data.city === 'Other' && !data.otherCity) {
-        errors.push('Please specify your city/town when selecting "Other"');
-    }
+    if (data.city === 'Other' && !data.otherCity) errors.push('Please specify your city/town when selecting "Other"');
     
-    // --- Client Validation ---
     if (role === 'client') {
         if (!clientType) errors.push('Client type is required');
         if (clientType === 'Company' && (!data.companyName || !data.companyAddress)) {
@@ -72,18 +95,13 @@ const validateFormData = (data, role, cleanerType, clientType) => {
         }
     }
     
-    // --- Cleaner Validation ---
     if (role === 'cleaner') {
         if (!cleanerType) errors.push('Cleaner type is required');
         if (!data.experience && Number(data.experience) !== 0) errors.push('Years of experience is required');
         if (!data.bio) errors.push('Bio is required');
-        
-        if (!data.nin) errors.push('NIN is required');
-        if (data.nin && !/^[0-9]{11}$/.test(data.nin)) errors.push('NIN must be exactly 11 digits');
-        
+        if (!data.nin || !/^[0-9]{11}$/.test(data.nin)) errors.push('NIN must be exactly 11 digits');
         if (!data.bankName) errors.push('Bank name is required');
-        if (!data.accountNumber) errors.push('Account number is required');
-        if (data.accountNumber && !/^[0-9]{10}$/.test(data.accountNumber)) errors.push('Account number must be exactly 10 digits');
+        if (!data.accountNumber || !/^[0-9]{10}$/.test(data.accountNumber)) errors.push('Account number must be exactly 10 digits');
 
         const hasHourly = Number(data.chargeHourly) > 0;
         const hasDaily = Number(data.chargeDaily) > 0;
@@ -112,20 +130,14 @@ const validateFormData = (data, role, cleanerType, clientType) => {
 const validateRequiredFiles = (files, role, cleanerType) => {
     const errors = [];
     const idDoc = files?.idDocument?.[0] || files?.governmentId?.[0];
-    if (!idDoc || !idDoc.buffer || idDoc.buffer.length === 0) {
-        errors.push('Government ID document is required');
-    }
+    if (!idDoc || !idDoc.buffer || idDoc.buffer.length === 0) errors.push('Government ID document is required');
     
     if (role === 'cleaner') {
         const photo = files?.profilePhoto?.[0];
-        if (!photo || !photo.buffer || photo.buffer.length === 0) {
-            errors.push('Profile photo is required for cleaners');
-        }
+        if (!photo || !photo.buffer || photo.buffer.length === 0) errors.push('Profile photo is required for cleaners');
         if (cleanerType === 'Company') {
             const bizReg = files?.businessRegDoc?.[0];
-            if (!bizReg || !bizReg.buffer || bizReg.buffer.length === 0) {
-                errors.push('Business registration document is required for company cleaners');
-            }
+            if (!bizReg || !bizReg.buffer || bizReg.buffer.length === 0) errors.push('Business registration document is required for company cleaners');
         }
     }
     return errors;
@@ -148,36 +160,31 @@ const registerUser = async (req, res) => {
 
     const files = req.files || {};
 
-    // Validate Data
     const formErrors = validateFormData(req.body, role, cleanerType, clientType);
     if (formErrors.length > 0) return res.status(400).json({ message: `Form Validation: ${formErrors.join(', ')}` });
 
-    // Validate Files
     const fileErrors = validateRequiredFiles(files, role, cleanerType);
     if (fileErrors.length > 0) return res.status(400).json({ message: `File Validation: ${fileErrors.join(', ')}` });
 
     const client = await pool.connect();
 
     try {
-        // Check Existence
         const exists = await client.query("SELECT email FROM users WHERE email = $1", [email]);
         if (exists.rows.length > 0) return res.status(400).json({ message: "User already exists with this email." });
 
-        // Hash Password
         const salt = await bcrypt.genSalt(10);
         const finalPassword = password || `CleanConnect${Date.now()}`; 
         const hashedPassword = await bcrypt.hash(finalPassword, salt);
 
-        await client.query("BEGIN"); // Start Transaction
+        await client.query("BEGIN");
 
-        // Insert User
         const insertUserQuery = `
             INSERT INTO users (
                 email, password_hash, full_name, phone_number,
                 gender, state, city, other_city, address, role
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING id, email, role, is_admin;
+            RETURNING *;
         `;
         const newUser = (await client.query(insertUserQuery, [
             email, hashedPassword, fullName, phoneNumber,
@@ -186,7 +193,6 @@ const registerUser = async (req, res) => {
 
         console.log(`✅ User created: ID ${newUser.id}`);
 
-        // Client Profile
         if (role === 'client') {
             await client.query(`
                 INSERT INTO client_profiles (user_id, client_type, company_name, company_address)
@@ -194,7 +200,6 @@ const registerUser = async (req, res) => {
             `, [newUser.id, clientType, clientType === 'Company' ? companyName : null, clientType === 'Company' ? companyAddress : null]);
         }
 
-        // Cleaner Profile
         if (role === 'cleaner') {
             let idUrl = null, photoUrl = null, bizUrl = null;
 
@@ -224,7 +229,6 @@ const registerUser = async (req, res) => {
                 cleanerType === 'Company' ? companyName : null, cleanerType === 'Company' ? companyAddress : null
             ]);
 
-            // Insert Services
             const servicesArray = Array.isArray(services) ? services : [services];
             for (const serviceName of servicesArray) {
                 if (!serviceName) continue;
@@ -235,19 +239,15 @@ const registerUser = async (req, res) => {
             }
         }
 
-        await client.query("COMMIT"); // Commit Transaction
+        await client.query("COMMIT");
         
         const token = generateToken(newUser.id, newUser.is_admin);
         
+        // ✅ FIXED: Return formatted user
         res.status(201).json({
             message: "Registration successful",
             token,
-            user: {
-                id: newUser.id,
-                email: newUser.email,
-                role: newUser.role,
-                fullName: fullName
-            }
+            user: formatUser(newUser)
         });
 
     } catch (err) {
@@ -279,7 +279,6 @@ const loginUser = async (req, res) => {
         delete fullProfile.password_hash;
 
         if (user.role === 'cleaner') {
-            // FIXED: Join with services to get them immediately on login
             const cleanerRes = await pool.query(`
                 SELECT c.*, 
                        COALESCE(json_agg(s.name) FILTER (WHERE s.name IS NOT NULL), '[]') as services 
@@ -296,7 +295,12 @@ const loginUser = async (req, res) => {
         }
 
         const token = generateToken(user.id, user.is_admin);
-        res.json({ token, user: fullProfile });
+        
+        // ✅ FIXED: Return formatted user (CamelCase) to prevent frontend crash
+        res.json({ 
+            token, 
+            user: formatUser(fullProfile) 
+        });
 
     } catch (err) {
         console.error('Login Error:', err);
@@ -309,16 +313,13 @@ const loginUser = async (req, res) => {
 // -----------------------------
 const getMe = async (req, res) => {
     try {
-        // Get User Base
         const userRes = await pool.query("SELECT * FROM users WHERE id = $1", [req.user.id]);
         if (userRes.rows.length === 0) return res.status(404).json({ message: "User not found" });
 
         let userData = userRes.rows[0];
         delete userData.password_hash;
 
-        // Append Role Data
         if (userData.role === 'cleaner') {
-            // ✅ FIXED QUERY: Correctly joins on c.user_id
             const cleanerData = await pool.query(`
                 SELECT c.*, 
                        COALESCE(json_agg(s.name) FILTER (WHERE s.name IS NOT NULL), '[]') as services 
@@ -328,18 +329,14 @@ const getMe = async (req, res) => {
                 WHERE c.user_id = $1
                 GROUP BY c.id
             `, [req.user.id]);
-            
-            if (cleanerData.rows.length > 0) {
-                userData = { ...userData, ...cleanerData.rows[0] };
-            }
+            if (cleanerData.rows.length > 0) userData = { ...userData, ...cleanerData.rows[0] };
         } else if (userData.role === 'client') {
             const clientData = await pool.query("SELECT * FROM client_profiles WHERE user_id = $1", [req.user.id]);
-            if (clientData.rows.length > 0) {
-                userData = { ...userData, ...clientData.rows[0] };
-            }
+            if (clientData.rows.length > 0) userData = { ...userData, ...clientData.rows[0] };
         }
 
-        res.json(userData);
+        // ✅ FIXED: Return formatted user
+        res.json(formatUser(userData));
     } catch (err) {
         console.error('GetMe Error:', err);
         res.status(500).json({ message: "Error fetching profile" });
