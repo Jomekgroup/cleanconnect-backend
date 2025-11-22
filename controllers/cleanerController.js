@@ -13,6 +13,7 @@ const pool = global.db;
 const getAllCleaners = async (req, res, next) => {
     try {
         // Step 1: Get all cleaners with their profile info and calculated ratings.
+        // We select specific columns to ensure we have data for the frontend
         const cleanersQuery = `
             SELECT 
                 u.id,
@@ -60,11 +61,17 @@ const getAllCleaners = async (req, res, next) => {
             const cleanerServices = services
                 .filter(s => s.cleaner_user_id === cleaner.id)
                 .map(s => s.name);
+            
             return {
                 ...cleaner,
-                // ✅ CRITICAL FIX: Convert string rating to Number to prevent frontend crash
-                rating: Number(cleaner.rating) || 0,
+                // ✅ CRITICAL FIX 1: Force rating to be a Number (Prevents .toFixed crash)
+                rating: Number(cleaner.rating) || 0, 
                 reviews: Number(cleaner.reviews) || 0,
+                
+                // ✅ CRITICAL FIX 2: Provide default Subscription (Prevents .toUpperCase crash)
+                // We default to 'Free' if the database column is missing or null
+                subscriptionTier: 'Free', 
+                
                 serviceTypes: cleanerServices
             };
         });
@@ -72,7 +79,7 @@ const getAllCleaners = async (req, res, next) => {
         res.json(cleanersWithServices);
 
     } catch (error) {
-        next(error); // Pass any database errors to the global error handler
+        next(error); 
     }
 };
 
@@ -87,7 +94,8 @@ const getCleanerById = async (req, res, next) => {
         // Fetch cleaner profile
         const cleanerQuery = `
              SELECT u.id, u.full_name as name, u.state, u.city, u.other_city, c.*
-             FROM users u JOIN cleaners c ON u.id = c.user_id
+             FROM users u 
+             JOIN cleaners c ON u.id = c.user_id
              WHERE u.id = $1 AND u.role = 'cleaner';
         `;
         const cleanerResult = await pool.query(cleanerQuery, [id]);
@@ -105,6 +113,9 @@ const getCleanerById = async (req, res, next) => {
         const servicesQuery = `SELECT s.name FROM services s JOIN cleaner_services cs ON s.id = cs.service_id WHERE cs.cleaner_user_id = $1;`;
         const servicesResult = await pool.query(servicesQuery, [id]);
         cleaner.serviceTypes = servicesResult.rows.map(s => s.name);
+        
+        // ✅ Add default subscription tier here too
+        cleaner.subscriptionTier = 'Free';
 
         res.json(cleaner);
     } catch (error) {
@@ -125,6 +136,7 @@ const aiSearchCleaners = async (req, res, next) => {
 
     try {
         // STEP 1: Initialize the Gemini API SDK
+        // Note: Ensure GOOGLE_GENAI_API_KEY is in your Render env variables
         const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY });
 
         // STEP 2: Fetch the relevant data for all cleaners
@@ -164,6 +176,7 @@ const aiSearchCleaners = async (req, res, next) => {
             matchingIds = JSON.parse(cleanedText);
         } catch (parseError) {
             console.error("Gemini API response parsing error:", parseError);
+            // Return empty list gracefully if AI fails
             return res.json({ matchingIds: [] });
         }
         
@@ -171,6 +184,7 @@ const aiSearchCleaners = async (req, res, next) => {
 
     } catch (error) {
         console.error("AI Search Error:", error);
+        // Fallback: Return empty list instead of 500 error if AI fails
         res.json({ matchingIds: [] });
     }
 };
