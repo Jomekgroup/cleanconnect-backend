@@ -12,8 +12,7 @@ const pool = global.db;
  */
 const getAllCleaners = async (req, res, next) => {
     try {
-        // FIXED: Uses 'cleaners' table instead of 'cleaner_profiles'
-        // FIXED: Changed alias 'cp' to 'c' to match the new table schema
+        // Step 1: Get all cleaners with their profile info and calculated ratings.
         const cleanersQuery = `
             SELECT 
                 u.id,
@@ -45,7 +44,7 @@ const getAllCleaners = async (req, res, next) => {
         // Step 2: Get all services for all cleaners in a single, efficient query.
         const cleanerIds = cleaners.map(c => c.id);
         if (cleanerIds.length === 0) {
-            return res.json([]); 
+            return res.json([]); // Return empty array if no cleaners are found
         }
 
         const servicesQuery = `
@@ -63,6 +62,9 @@ const getAllCleaners = async (req, res, next) => {
                 .map(s => s.name);
             return {
                 ...cleaner,
+                // ✅ CRITICAL FIX: Convert string rating to Number to prevent frontend crash
+                rating: Number(cleaner.rating) || 0,
+                reviews: Number(cleaner.reviews) || 0,
                 serviceTypes: cleanerServices
             };
         });
@@ -70,7 +72,7 @@ const getAllCleaners = async (req, res, next) => {
         res.json(cleanersWithServices);
 
     } catch (error) {
-        next(error); 
+        next(error); // Pass any database errors to the global error handler
     }
 };
 
@@ -82,11 +84,10 @@ const getAllCleaners = async (req, res, next) => {
 const getCleanerById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        // FIXED: Uses 'cleaners' table
+        // Fetch cleaner profile
         const cleanerQuery = `
              SELECT u.id, u.full_name as name, u.state, u.city, u.other_city, c.*
-             FROM users u 
-             JOIN cleaners c ON u.id = c.user_id
+             FROM users u JOIN cleaners c ON u.id = c.user_id
              WHERE u.id = $1 AND u.role = 'cleaner';
         `;
         const cleanerResult = await pool.query(cleanerQuery, [id]);
@@ -95,12 +96,12 @@ const getCleanerById = async (req, res, next) => {
         }
         const cleaner = cleanerResult.rows[0];
 
-        // Fetch all reviews
+        // Fetch all reviews for that cleaner
         const reviewsQuery = `SELECT * FROM reviews WHERE cleaner_id = $1 ORDER BY created_at DESC;`;
         const reviewsResult = await pool.query(reviewsQuery, [id]);
         cleaner.reviewsData = reviewsResult.rows;
         
-        // Fetch all services
+        // Fetch all services for that cleaner
         const servicesQuery = `SELECT s.name FROM services s JOIN cleaner_services cs ON s.id = cs.service_id WHERE cs.cleaner_user_id = $1;`;
         const servicesResult = await pool.query(servicesQuery, [id]);
         cleaner.serviceTypes = servicesResult.rows.map(s => s.name);
@@ -123,10 +124,10 @@ const aiSearchCleaners = async (req, res, next) => {
     }
 
     try {
-        // Initialize Gemini
+        // STEP 1: Initialize the Gemini API SDK
         const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_GENAI_API_KEY });
 
-        // FIXED: Uses 'cleaners' table
+        // STEP 2: Fetch the relevant data for all cleaners
         const cleanersDataResult = await pool.query(`
             SELECT u.id, u.full_name, u.state, u.city, c.bio,
                    (SELECT array_agg(s.name) FROM cleaner_services cs JOIN services s ON cs.service_id = s.id WHERE cs.cleaner_user_id = u.id) as services
@@ -136,6 +137,7 @@ const aiSearchCleaners = async (req, res, next) => {
         `);
         const cleanersContext = cleanersDataResult.rows;
 
+        // STEP 3: Engineer a detailed prompt for the AI model
         const prompt = `
             You are a helpful assistant for a cleaning service platform called CleanConnect.
             Based on the following JSON list of available cleaners, find the best matches for the user's query.
@@ -150,6 +152,7 @@ const aiSearchCleaners = async (req, res, next) => {
             Example Response: ["uuid-123", "uuid-456", "uuid-789"]
         `;
 
+        // STEP 4: Call the Gemini API and parse the response
         const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const result = await model.generateContent(prompt);
         const response = await result.response;
