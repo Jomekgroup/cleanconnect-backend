@@ -1,4 +1,6 @@
 import serverless from 'serverless-http';
+import serverless from 'serverless-http';  // ADD THIS LINE
+import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
 import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -33,7 +35,30 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
 
 // Increase payload limit for Base64 image uploads
 app.use(express.json({ limit: '50mb' }));
-app.use(cors());
+// CORS Configuration
+const allowedOrigins = [
+  'http://localhost:5173',  // Local development
+  'http://localhost:3000',
+  'https://cleanconnect.vercel.app',  // Your frontend URL (update this!)
+  'https://cleanconnect-frontend.vercel.app'  // Your actual frontend URL
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'), false);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));''
 
 // Database Connection
 const pool = new Pool({
@@ -103,6 +128,35 @@ const admin: RequestHandler = (req, res, next) => {
   if (authReq.user && authReq.user.isAdmin) next();
   else res.status(403).json({ message: 'Admin access required' });
 };
+
+// ============================================================================
+// HEALTH CHECK ROUTE (FOR VERCEL MONITORING)
+// ============================================================================
+app.get('/api/health', (req: ExpressRequest, res: ExpressResponse) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'CleanConnect Backend API',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+app.get('/', (req: ExpressRequest, res: ExpressResponse) => {
+  res.json({ 
+    message: 'CleanConnect Backend API',
+    version: '1.0.0',
+    endpoints: {
+      auth: '/api/auth/*',
+      cleaners: '/api/cleaners',
+      users: '/api/users/*',
+      bookings: '/api/bookings/*',
+      admin: '/api/admin/*',
+      support: '/api/support/*',
+      chats: '/api/chats/*',
+      health: '/api/health'
+    }
+  });
+});
 
 // ============================================================================
 // ROUTES: AUTH
@@ -839,29 +893,29 @@ app.post('/api/contact', (req: ExpressRequest, res: ExpressResponse) => {
 });
 
 // ============================================================================
-// SERVER START
+// SERVER START - LOCAL DEVELOPMENT ONLY
 // ============================================================================
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Only start the server if running locally (not on Vercel)
+if (process.env.VERCEL !== '1') {
+  const PORT = process.env.PORT || 5000;
   
-  if (!process.env.DATABASE_URL) {
-      console.warn("WARNING: DATABASE_URL is not set. Database features will fail.");
-  }
-  if (!process.env.API_KEY) {
-      console.warn("WARNING: API_KEY is not set. AI features will fail.");
-  }
-});
+  app.listen(PORT, () => {
+    console.log(`Server running locally on port ${PORT}`);
+    
+    if (!process.env.DATABASE_URL) {
+        console.warn("WARNING: DATABASE_URL is not set. Database features will fail.");
+    }
+    if (!process.env.API_KEY) {
+        console.warn("WARNING: API_KEY is not set. AI features will fail.");
+    }
+  });
+}
 
-// Serve static files in production
-// Place this AFTER API routes so API requests aren't intercepted by the static handler
-if (process.env.NODE_ENV === 'production') {
-  // Assuming the build output is in the 'dist' folder at the root level relative to where this script runs
-  // If backend/index.ts is run via ts-node, __dirname is .../backend. ../dist is .../dist.
-  // If compiled to dist/backend/index.js, adjusting path might be needed. 
-  // Standard monorepo or simple deployment usually puts `dist` (frontend) and `backend` as siblings.
+// Serve static files in production (LOCAL ONLY - not for Vercel)
+// On Vercel, static files should be served separately via frontend deployment
+if (process.env.NODE_ENV === 'production' && process.env.VERCEL !== '1') {
   app.use(express.static(path.join(__dirname_local, '../dist')));
-
   app.get('*', (req: ExpressRequest, res: ExpressResponse) => {
     res.sendFile(path.join(__dirname_local, '../dist/index.html'));
   });
@@ -870,5 +924,12 @@ if (process.env.NODE_ENV === 'production') {
 app.use((req: ExpressRequest, res: ExpressResponse, next: NextFunction) => {
     res.status(404).json({ message: `Not Found - ${req.originalUrl}` });
 });
-export const handler = serverless(app);
-export default app;  // For Vercel to pick up
+// ============================================================================
+// VERCEL SERVERLESS EXPORT
+// ============================================================================
+
+// For Vercel serverless deployment
+export default serverless(app);
+
+// For local development testing
+export { app };
