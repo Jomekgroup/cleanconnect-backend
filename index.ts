@@ -1,4 +1,4 @@
-
+import serverless from 'serverless-http';
 import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -870,3 +870,5 @@ if (process.env.NODE_ENV === 'production') {
 app.use((req: ExpressRequest, res: ExpressResponse, next: NextFunction) => {
     res.status(404).json({ message: `Not Found - ${req.originalUrl}` });
 });
+export const handler = serverless(app);
+export default app;  // For Vercel to pick up
