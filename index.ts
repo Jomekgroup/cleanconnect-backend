@@ -1,6 +1,4 @@
 import serverless from 'serverless-http';
-import serverless from 'serverless-http';  // ADD THIS LINE
-import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
 import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -10,6 +8,11 @@ import jwt from 'jsonwebtoken';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { fileURLToPath } from 'url';
+
+// Remove ANY duplicate import statements
+// Make sure you don't have these imports anywhere else in your file:
+// - import express from 'express'; (duplicate)
+// - import { Request, Response } from 'express'; (conflicting with ExpressRequest/ExpressResponse)
 
 // Determine if we are in an ESM environment
 const isESM = typeof import.meta !== 'undefined' && import.meta.url;
