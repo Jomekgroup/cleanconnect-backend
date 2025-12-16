@@ -1,27 +1,15 @@
 # Dependency directory
-/node_modules
+node_modules/
 
 # Environment/Secrets
 .env
 
-# TypeScript build artifacts (even though we converted to JS, it's good practice)
-*.js
-*.js.map
-/dist
-/build
+# Build artifacts (ONLY if you actually build)
+dist/
+build/
 
-# IDE/OS Specific files
-.vscode
-.idea
+# IDE/OS files
+.vscode/
+.idea/
 *.log
 npm-debug.log*
-
-# Lock file (only keep package-lock.json or yarn.lock, not both)
-# If you are using NPM (which you are), you should keep package-lock.json
-# and include yarn.lock or pnpm-lock.yaml if you're not using them.
-
-# Files from your original structure that we've decided to exclude for simple JS deployment
-middleware/
-utils/
-types.ts
-tsconfig.json
