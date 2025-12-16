@@ -1,18 +1,17 @@
 {
-  "name": "cleanconnect-backend",
+  "name": "cleaning-service-backend",
   "version": "1.0.0",
-  "description": "CleanConnect Serverless API",
+  "description": "Backend API for cleaning service platform using Express and PostgreSQL.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon index.js"
   },
   "keywords": [
     "express",
-    "vercel",
-    "serverless",
-    "postgres"
+    "nodejs",
+    "postgres",
+    "render"
   ],
   "author": "",
   "license": "ISC",
@@ -22,10 +21,9 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.11.3",
-    "serverless-http": "^3.2.0"
+    "pg": "^8.11.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.1.0"
   }
 }

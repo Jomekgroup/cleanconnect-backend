@@ -1,29 +1,27 @@
-# Node dependencies
-node_modules/
+# Dependency directory
+/node_modules
 
-# Environment variables
+# Environment/Secrets
 .env
-.env.local
-.env.*.local
 
-# Logs
+# TypeScript build artifacts (even though we converted to JS, it's good practice)
+*.js
+*.js.map
+/dist
+/build
+
+# IDE/OS Specific files
+.vscode
+.idea
+*.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# OS files
-.DS_Store
-Thumbs.db
+# Lock file (only keep package-lock.json or yarn.lock, not both)
+# If you are using NPM (which you are), you should keep package-lock.json
+# and include yarn.lock or pnpm-lock.yaml if you're not using them.
 
-# VS Code
-.vscode/
-
-# Vite / build outputs (if any)
-dist/
-.vite/
-
-# Vercel local files
-.vercel/
-
-# Optional: TypeScript build outputs
-*.tsbuildinfo
+# Files from your original structure that we've decided to exclude for simple JS deployment
+middleware/
+utils/
+types.ts
+tsconfig.json
