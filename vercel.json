@@ -1,14 +1,11 @@
 {
-  "version": 2,
-  "functions": {
-    "index.js": { 
-      "runtime": "nodejs20.x" 
-    }
+  "name": "cleanconnect-backend",
+  // ... other fields ...
+  "engines": {
+    "node": "20.x" 
   },
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "index.js"
-    }
-  ]
+  "dependencies": {
+    // ...
+  }
+  // ...
 }
