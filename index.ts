@@ -1,31 +1,12 @@
-import serverless from 'serverless-http';
-import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import { Pool } from 'pg';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import path from 'path';
-import { GoogleGenAI } from '@google/genai';
-import { fileURLToPath } from 'url';
-
-// Remove ANY duplicate import statements
-// Make sure you don't have these imports anywhere else in your file:
-// - import express from 'express'; (duplicate)
-// - import { Request, Response } from 'express'; (conflicting with ExpressRequest/ExpressResponse)
-
-// Determine if we are in an ESM environment
-const isESM = typeof import.meta !== 'undefined' && import.meta.url;
-
-let __dirname_local = '';
-if (isESM) {
-    const __filename = fileURLToPath(import.meta.url);
-    __dirname_local = path.dirname(__filename);
-} else {
-    // Fallback for CommonJS environments (ts-node often runs this way by default unless configured otherwise)
-    // @ts-ignore
-    __dirname_local = typeof __dirname !== 'undefined' ? __dirname : path.resolve();
-}
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+const { GoogleGenAI } = require('@google/genai');
+const serverless = require('serverless-http'); // Import for Vercel
 
 // ============================================================================
 // CONFIGURATION
@@ -38,17 +19,17 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
 
 // Increase payload limit for Base64 image uploads
 app.use(express.json({ limit: '50mb' }));
+
 // CORS Configuration
 const allowedOrigins = [
   'http://localhost:5173',  // Local development
   'http://localhost:3000',
-  'https://cleanconnect.vercel.app',  // Your frontend URL (update this!)
-  'https://cleanconnect-frontend.vercel.app'  // Your actual frontend URL
+  'https://cleanconnect.vercel.app',
+  'https://cleanconnect-frontend.vercel.app'
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin)) {
@@ -61,48 +42,40 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));''
+}));
 
 // Database Connection
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL, // e.g., postgres://user:pass@localhost:5432/cleanconnect
+  connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
 // Gemini AI Client
-// The API key MUST be obtained from process.env.API_KEY
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-// ============================================================================
-// TYPES & INTERFACES
-// ============================================================================
-interface AuthRequest extends ExpressRequest {
-  user?: {
-    id: string;
-    role: string;
-    isAdmin: boolean;
-    adminRole?: string;
-  };
-  body: any;
-  params: any;
-  query: any;
+let ai;
+try {
+    // Check if the dependency is available and API_KEY is set
+    if (process.env.API_KEY) {
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    }
+} catch (e) {
+    console.warn("Google AI init failed. Ensure @google/genai is installed and API_KEY is set.");
 }
+
 
 // ============================================================================
 // UTILITIES
 // ============================================================================
-const generateToken = (id: string, role: string, isAdmin: boolean, adminRole?: string) => {
+const generateToken = (id, role, isAdmin, adminRole) => {
   return jwt.sign({ id, role, isAdmin, adminRole }, JWT_SECRET, { expiresIn: '30d' });
 };
 
-const sendEmail = async (to: string, subject: string, text: string) => {
-  // Mock Email Sender
+const sendEmail = async (to, subject, text) => {
   if (process.env.NODE_ENV !== 'test') {
     console.log(`\n--- [MOCK EMAIL] ---\nTo: ${to}\nSubject: ${subject}\nBody: ${text}\n--------------------\n`);
   }
 };
 
-const handleError = (res: ExpressResponse, error: any, message: string = 'Server Error') => {
+const handleError = (res, error, message = 'Server Error') => {
   console.error(message, error);
   res.status(500).json({ message: error.message || message });
 };
@@ -110,13 +83,13 @@ const handleError = (res: ExpressResponse, error: any, message: string = 'Server
 // ============================================================================
 // MIDDLEWARE
 // ============================================================================
-const protect: RequestHandler = (req, res, next) => {
+const protect = (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
-      (req as AuthRequest).user = decoded;
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
       next();
     } catch (error) {
       res.status(401).json({ message: 'Not authorized, token failed' });
@@ -126,16 +99,15 @@ const protect: RequestHandler = (req, res, next) => {
   }
 };
 
-const admin: RequestHandler = (req, res, next) => {
-  const authReq = req as AuthRequest;
-  if (authReq.user && authReq.user.isAdmin) next();
+const admin = (req, res, next) => {
+  if (req.user && req.user.isAdmin) next();
   else res.status(403).json({ message: 'Admin access required' });
 };
 
 // ============================================================================
 // HEALTH CHECK ROUTE (FOR VERCEL MONITORING)
 // ============================================================================
-app.get('/api/health', (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'CleanConnect Backend API',
@@ -144,19 +116,12 @@ app.get('/api/health', (req: ExpressRequest, res: ExpressResponse) => {
   });
 });
 
-app.get('/', (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/', (req, res) => {
   res.json({ 
     message: 'CleanConnect Backend API',
     version: '1.0.0',
     endpoints: {
-      auth: '/api/auth/*',
-      cleaners: '/api/cleaners',
-      users: '/api/users/*',
-      bookings: '/api/bookings/*',
-      admin: '/api/admin/*',
-      support: '/api/support/*',
-      chats: '/api/chats/*',
-      health: '/api/health'
+      // ... (your endpoint list)
     }
   });
 });
@@ -164,7 +129,7 @@ app.get('/', (req: ExpressRequest, res: ExpressResponse) => {
 // ============================================================================
 // ROUTES: AUTH
 // ============================================================================
-app.post('/api/auth/register', async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/auth/register', async (req, res) => {
   const { email, password, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, services, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc } = req.body;
 
   try {
@@ -193,7 +158,7 @@ app.post('/api/auth/register', async (req: ExpressRequest, res: ExpressResponse)
   } catch (error) { handleError(res, error, 'Registration failed'); }
 });
 
-app.post('/api/auth/login', async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
@@ -202,7 +167,6 @@ app.post('/api/auth/login', async (req: ExpressRequest, res: ExpressResponse) =>
     if (user && (await bcrypt.compare(password, user.password_hash))) {
       if (user.is_suspended) return res.status(403).json({ message: 'Account is suspended.' });
       
-      // Normalize DB keys to frontend expectations (camelCase)
       const userData = {
         id: user.id,
         fullName: user.full_name,
@@ -212,7 +176,6 @@ app.post('/api/auth/login', async (req: ExpressRequest, res: ExpressResponse) =>
         adminRole: user.admin_role,
         profilePhoto: user.profile_photo,
         subscriptionTier: user.subscription_tier,
-        // ... other fields loaded in getMe usually
       };
       
       res.json({ token: generateToken(user.id, user.role, user.is_admin, user.admin_role), user: userData });
@@ -223,9 +186,9 @@ app.post('/api/auth/login', async (req: ExpressRequest, res: ExpressResponse) =>
 });
 
 // ============================================================================
-// ROUTES: ADMIN SEEDING (Dev/Demo)
+// ROUTES: ADMIN SEEDING
 // ============================================================================
-app.get('/api/seed-admins', async (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/api/seed-admins', async (req, res) => {
   try {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash('password', salt);
@@ -263,8 +226,7 @@ app.get('/api/seed-admins', async (req: ExpressRequest, res: ExpressResponse) =>
 // ============================================================================
 // ROUTES: USERS & CLEANERS
 // ============================================================================
-app.get('/api/users/me', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-  const authReq = req as AuthRequest;
+app.get('/api/users/me', protect, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
@@ -272,12 +234,11 @@ app.get('/api/users/me', protect, async (req: ExpressRequest, res: ExpressRespon
         (SELECT json_agg(b.*) FROM bookings b WHERE b.client_id = u.id OR b.cleaner_id = u.id) as booking_history,
         (SELECT json_agg(r.*) FROM reviews r WHERE r.cleaner_id = u.id) as reviews_data
       FROM users u WHERE u.id = $1
-    `, [authReq.user!.id]);
+    `, [req.user.id]);
     
     const user = result.rows[0];
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Transform DB snake_case to camelCase for frontend
     const formattedUser = {
       id: user.id,
       fullName: user.full_name,
@@ -318,8 +279,7 @@ app.get('/api/users/me', protect, async (req: ExpressRequest, res: ExpressRespon
   } catch (error) { handleError(res, error); }
 });
 
-app.put('/api/users/me', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-  const authReq = req as AuthRequest;
+app.put('/api/users/me', protect, async (req, res) => {
   const { fullName, phoneNumber, address, bio, services, experience, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, profilePhoto, state, city, otherCity, companyName, companyAddress, bankName, accountNumber } = req.body;
   try {
     const result = await pool.query(
@@ -343,15 +303,14 @@ app.put('/api/users/me', protect, async (req: ExpressRequest, res: ExpressRespon
         account_number = COALESCE($17, account_number),
         charge_per_contract_negotiable = COALESCE($18, charge_per_contract_negotiable)
        WHERE id = $19 RETURNING *`,
-      [fullName, phoneNumber, address, bio, services ? JSON.stringify(services) : null, experience, chargeHourly, chargeDaily, chargePerContract, profilePhoto, state, city, otherCity, companyName, companyAddress, bankName, accountNumber, chargePerContractNegotiable, authReq.user!.id]
+      [fullName, phoneNumber, address, bio, services ? JSON.stringify(services) : null, experience, chargeHourly, chargeDaily, chargePerContract, profilePhoto, state, city, otherCity, companyName, companyAddress, bankName, accountNumber, chargePerContractNegotiable, req.user.id]
     );
     res.json(result.rows[0]);
   } catch (error) { handleError(res, error, 'Update failed'); }
 });
 
-app.get('/api/cleaners', async (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/api/cleaners', async (req, res) => {
   try {
-    // Advanced query to get aggregated rating and a snippet of recent reviews
     const result = await pool.query(`
       SELECT 
         u.*,
@@ -373,7 +332,6 @@ app.get('/api/cleaners', async (req: ExpressRequest, res: ExpressResponse) => {
       GROUP BY u.id
     `);
 
-    // Format for frontend
     const cleaners = result.rows.map(c => ({
       id: c.id,
       name: c.full_name,
@@ -399,7 +357,7 @@ app.get('/api/cleaners', async (req: ExpressRequest, res: ExpressResponse) => {
   } catch (error) { handleError(res, error); }
 });
 
-app.get('/api/cleaners/:id', async (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/api/cleaners/:id', async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT 
@@ -444,25 +402,22 @@ app.get('/api/cleaners/:id', async (req: ExpressRequest, res: ExpressResponse) =
 // ============================================================================
 // ROUTES: BOOKINGS
 // ============================================================================
-app.post('/api/bookings', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-  const authReq = req as AuthRequest;
+app.post('/api/bookings', protect, async (req, res) => {
   const { cleanerId, service, date, amount, totalAmount, paymentMethod } = req.body;
   try {
     const cleanerRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [cleanerId]);
     const cleanerName = cleanerRes.rows[0]?.full_name || 'Cleaner';
     
-    const clientRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [authReq.user!.id]);
+    const clientRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [req.user.id]);
     const clientName = clientRes.rows[0]?.full_name || 'Client';
 
     const result = await pool.query(
       `INSERT INTO bookings (
         client_id, cleaner_id, client_name, cleaner_name, service, date, amount, total_amount, payment_method, status, payment_status, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Upcoming', $10, NOW()) RETURNING *`,
-      [authReq.user!.id, cleanerId, clientName, cleanerName, service, date, amount, totalAmount, paymentMethod, paymentMethod === 'Direct' ? 'Not Applicable' : 'Pending Payment']
+      [req.user.id, cleanerId, clientName, cleanerName, service, date, amount, totalAmount, paymentMethod, paymentMethod === 'Direct' ? 'Not Applicable' : 'Pending Payment']
     );
 
-    // camelCase result keys manually or let utility handle it if available. 
-    // Here we return row directly, frontend types usually adapted or we should map.
     const b = result.rows[0];
     const booking = {
         id: b.id,
@@ -481,12 +436,12 @@ app.post('/api/bookings', protect, async (req: ExpressRequest, res: ExpressRespo
         reviewSubmitted: b.review_submitted
     };
 
-    await sendEmail(authReq.user!.id, 'Booking Confirmation', `You booked ${cleanerName} for ${service}.`);
+    await sendEmail(req.user.id, 'Booking Confirmation', `You booked ${cleanerName} for ${service}.`);
     res.status(201).json(booking);
   } catch (error) { handleError(res, error, 'Booking failed'); }
 });
 
-app.post('/api/bookings/:id/cancel', protect, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/bookings/:id/cancel', protect, async (req, res) => {
   try {
     const result = await pool.query("UPDATE bookings SET status = 'Cancelled' WHERE id = $1 RETURNING *", [req.params.id]);
     const b = result.rows[0];
@@ -494,7 +449,7 @@ app.post('/api/bookings/:id/cancel', protect, async (req: ExpressRequest, res: E
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/bookings/:id/complete', protect, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/bookings/:id/complete', protect, async (req, res) => {
   try {
     const bookingRes = await pool.query('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
     const booking = bookingRes.rows[0];
@@ -513,11 +468,10 @@ app.post('/api/bookings/:id/complete', protect, async (req: ExpressRequest, res:
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/bookings/:id/review', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-  const authReq = req as AuthRequest;
+app.post('/api/bookings/:id/review', protect, async (req, res) => {
   const { rating, timeliness, thoroughness, conduct, comment, cleanerId } = req.body;
   try {
-    const clientRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [authReq.user!.id]);
+    const clientRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [req.user.id]);
     const reviewerName = clientRes.rows[0]?.full_name || 'Anonymous';
 
     await pool.query(
@@ -531,7 +485,7 @@ app.post('/api/bookings/:id/review', protect, async (req: ExpressRequest, res: E
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/bookings/:id/receipt', protect, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/bookings/:id/receipt', protect, async (req, res) => {
   const { name, dataUrl } = req.body;
   try {
     const receiptJson = JSON.stringify({ name, dataUrl });
@@ -539,35 +493,32 @@ app.post('/api/bookings/:id/receipt', protect, async (req: ExpressRequest, res: 
       "UPDATE bookings SET payment_receipt = $1, payment_status = 'Pending Admin Confirmation' WHERE id = $2 RETURNING *",
       [receiptJson, req.params.id]
     );
-    res.json(result.rows[0]); // Returns raw DB row, frontend might need mapping if used directly
+    res.json(result.rows[0]); 
   } catch (error) { handleError(res, error); }
 });
 
 // ============================================================================
 // ROUTES: SUBSCRIPTION
 // ============================================================================
-app.post('/api/users/subscription/upgrade', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-  const authReq = req as AuthRequest;
+app.post('/api/users/subscription/upgrade', protect, async (req, res) => {
   const { plan } = req.body;
   try {
     const result = await pool.query(
       "UPDATE users SET pending_subscription = $1 WHERE id = $2 RETURNING *",
-      [plan, authReq.user!.id]
+      [plan, req.user.id]
     );
     const u = result.rows[0];
-    // Return mapped user
     res.json({ ...u, fullName: u.full_name, subscriptionTier: u.subscription_tier, pendingSubscription: u.pending_subscription });
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/users/subscription/receipt', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-  const authReq = req as AuthRequest;
+app.post('/api/users/subscription/receipt', protect, async (req, res) => {
   const { name, dataUrl } = req.body;
   try {
     const receiptJson = JSON.stringify({ name, dataUrl });
     const result = await pool.query(
       "UPDATE users SET subscription_receipt = $1 WHERE id = $2 RETURNING *",
-      [receiptJson, authReq.user!.id]
+      [receiptJson, req.user.id]
     );
     const u = result.rows[0];
     res.json({ ...u, fullName: u.full_name, subscriptionReceipt: JSON.parse(u.subscription_receipt) });
@@ -577,7 +528,7 @@ app.post('/api/users/subscription/receipt', protect, async (req: ExpressRequest,
 // ============================================================================
 // ROUTES: ADMIN
 // ============================================================================
-app.get('/api/admin/users', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/api/admin/users', protect, admin, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
     res.json(result.rows.map(u => ({
@@ -599,7 +550,7 @@ app.get('/api/admin/users', protect, admin, async (req: ExpressRequest, res: Exp
   } catch (error) { handleError(res, error); }
 });
 
-app.patch('/api/admin/users/:id/status', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.patch('/api/admin/users/:id/status', protect, admin, async (req, res) => {
   const { isSuspended } = req.body;
   try {
     await pool.query('UPDATE users SET is_suspended = $1 WHERE id = $2', [isSuspended, req.params.id]);
@@ -607,28 +558,28 @@ app.patch('/api/admin/users/:id/status', protect, admin, async (req: ExpressRequ
   } catch (error) { handleError(res, error); }
 });
 
-app.delete('/api/admin/users/:id', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.delete('/api/admin/users/:id', protect, admin, async (req, res) => {
   try {
     await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
     res.json({ message: 'User deleted' });
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/admin/bookings/:id/confirm-payment', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/admin/bookings/:id/confirm-payment', protect, admin, async (req, res) => {
   try {
     await pool.query("UPDATE bookings SET payment_status = 'Confirmed' WHERE id = $1", [req.params.id]);
     res.json({ message: 'Payment confirmed' });
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/admin/bookings/:id/mark-paid', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/admin/bookings/:id/mark-paid', protect, admin, async (req, res) => {
   try {
     await pool.query("UPDATE bookings SET payment_status = 'Paid' WHERE id = $1", [req.params.id]);
     res.json({ message: 'Marked as paid' });
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/admin/users/:id/approve-subscription', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/admin/users/:id/approve-subscription', protect, admin, async (req, res) => {
   try {
     const userRes = await pool.query('SELECT pending_subscription FROM users WHERE id = $1', [req.params.id]);
     const plan = userRes.rows[0]?.pending_subscription;
@@ -642,7 +593,7 @@ app.post('/api/admin/users/:id/approve-subscription', protect, admin, async (req
   } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/admin/create-admin', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/admin/create-admin', protect, admin, async (req, res) => {
   const { fullName, email, password, role } = req.body;
   try {
      const salt = await bcrypt.genSalt(10);
@@ -660,13 +611,12 @@ app.post('/api/admin/create-admin', protect, admin, async (req: ExpressRequest, 
 // ============================================================================
 // ROUTES: SUPPORT TICKETS
 // ============================================================================
-app.post('/api/support', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-    const authReq = req as AuthRequest;
+app.post('/api/support', protect, async (req, res) => {
     const { category, subject, message } = req.body;
     try {
         const result = await pool.query(
             "INSERT INTO support_tickets (user_id, category, subject, message, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING *",
-            [authReq.user!.id, category, subject, message]
+            [req.user.id, category, subject, message]
         );
         res.status(201).json(result.rows[0]);
     } catch (error) { 
@@ -674,10 +624,9 @@ app.post('/api/support', protect, async (req: ExpressRequest, res: ExpressRespon
     }
 });
 
-app.get('/api/support/my', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-    const authReq = req as AuthRequest;
+app.get('/api/support/my', protect, async (req, res) => {
     try {
-        const result = await pool.query("SELECT * FROM support_tickets WHERE user_id = $1 ORDER BY created_at DESC", [authReq.user!.id]);
+        const result = await pool.query("SELECT * FROM support_tickets WHERE user_id = $1 ORDER BY created_at DESC", [req.user.id]);
         res.json(result.rows.map(r => ({
             id: r.id,
             userId: r.user_id,
@@ -694,7 +643,7 @@ app.get('/api/support/my', protect, async (req: ExpressRequest, res: ExpressResp
     }
 });
 
-app.get('/api/admin/support', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/api/admin/support', protect, admin, async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT st.*, u.full_name, u.role 
@@ -721,7 +670,7 @@ app.get('/api/admin/support', protect, admin, async (req: ExpressRequest, res: E
     }
 });
 
-app.post('/api/admin/support/:id/resolve', protect, admin, async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/admin/support/:id/resolve', protect, admin, async (req, res) => {
     const { adminResponse } = req.body;
     try {
         const result = await pool.query(
@@ -737,10 +686,9 @@ app.post('/api/admin/support/:id/resolve', protect, admin, async (req: ExpressRe
 // ============================================================================
 // ROUTES: CHAT
 // ============================================================================
-app.post('/api/chats', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-    const authReq = req as AuthRequest;
+app.post('/api/chats', protect, async (req, res) => {
     const { participantId } = req.body;
-    const userId = authReq.user!.id;
+    const userId = req.user.id;
 
     try {
         // Check if chat already exists
@@ -758,11 +706,12 @@ app.post('/api/chats', protect, async (req: ExpressRequest, res: ExpressResponse
             [userId, participantId]
         );
         res.status(201).json({ id: result.rows[0].id, participants: [userId, participantId], participantNames: {} });
-    } catch (error) { handleError(res, error, 'Failed to create chat'); }
+    } catch (error) { 
+        handleError(res, error, 'Failed to create chat'); 
+    }
 });
 
-app.get('/api/chats', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-    const authReq = req as AuthRequest;
+app.get('/api/chats', protect, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT c.*, 
@@ -776,7 +725,7 @@ app.get('/api/chats', protect, async (req: ExpressRequest, res: ExpressResponse)
              JOIN users u2 ON c.participant_two = u2.id
              WHERE c.participant_one = $1 OR c.participant_two = $1
              ORDER BY m.created_at DESC NULLS LAST`,
-            [authReq.user!.id]
+            [req.user.id]
         );
 
         const chats = result.rows.map(row => ({
@@ -797,7 +746,7 @@ app.get('/api/chats', protect, async (req: ExpressRequest, res: ExpressResponse)
     } catch (error) { handleError(res, error); }
 });
 
-app.get('/api/chats/:id/messages', protect, async (req: ExpressRequest, res: ExpressResponse) => {
+app.get('/api/chats/:id/messages', protect, async (req, res) => {
     try {
         const result = await pool.query(
             'SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC',
@@ -814,13 +763,12 @@ app.get('/api/chats/:id/messages', protect, async (req: ExpressRequest, res: Exp
     } catch (error) { handleError(res, error); }
 });
 
-app.post('/api/chats/:id/messages', protect, async (req: ExpressRequest, res: ExpressResponse) => {
-    const authReq = req as AuthRequest;
+app.post('/api/chats/:id/messages', protect, async (req, res) => {
     const { text } = req.body;
     try {
         const result = await pool.query(
             'INSERT INTO messages (chat_id, sender_id, text) VALUES ($1, $2, $3) RETURNING *',
-            [req.params.id, authReq.user!.id, text]
+            [req.params.id, req.user.id, text]
         );
         const message = result.rows[0];
         
@@ -840,8 +788,13 @@ app.post('/api/chats/:id/messages', protect, async (req: ExpressRequest, res: Ex
 // ============================================================================
 // ROUTES: AI & MISC
 // ============================================================================
-app.post('/api/search/ai', async (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/search/ai', async (req, res) => {
   const { query } = req.body;
+  
+  if (!ai) {
+    return res.status(503).json({ message: "AI service not configured (API_KEY missing)" });
+  }
+
   try {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -861,7 +814,7 @@ app.post('/api/search/ai', async (req: ExpressRequest, res: ExpressResponse) => 
 
     // Build SQL Query based on extracted criteria
     let sql = "SELECT id FROM users WHERE role = 'cleaner' AND is_suspended = false";
-    const params: any[] = [];
+    const params = [];
     let paramIndex = 1;
 
     if (criteria.location) {
@@ -885,22 +838,31 @@ app.post('/api/search/ai', async (req: ExpressRequest, res: ExpressResponse) => 
     res.json({ matchingIds: result.rows.map(r => r.id) });
 
   } catch (error) { 
-      console.error(error);
+      console.error("AI Search Failed:", error);
+      // Return empty array on AI failure to prevent cascading crash
       res.json({ matchingIds: [] });
   }
 });
 
-app.post('/api/contact', (req: ExpressRequest, res: ExpressResponse) => {
+app.post('/api/contact', (req, res) => {
     console.log('Contact Form:', req.body);
     res.json({ message: 'Message received' });
 });
 
+// Catch-all for undefined API routes
+app.use((req, res) => {
+    res.status(404).json({ message: `Not Found - ${req.originalUrl}` });
+});
+
 // ============================================================================
-// SERVER START - LOCAL DEVELOPMENT ONLY
+// VERCEL SERVERLESS EXPORT & LOCAL START
 // ============================================================================
 
-// Only start the server if running locally (not on Vercel)
-if (process.env.VERCEL !== '1') {
+// Vercel Serverless Export (Standard for @vercel/node)
+module.exports = serverless(app);
+
+// Local Development Fallback
+if (require.main === module) {
   const PORT = process.env.PORT || 5000;
   
   app.listen(PORT, () => {
@@ -914,25 +876,3 @@ if (process.env.VERCEL !== '1') {
     }
   });
 }
-
-// Serve static files in production (LOCAL ONLY - not for Vercel)
-// On Vercel, static files should be served separately via frontend deployment
-if (process.env.NODE_ENV === 'production' && process.env.VERCEL !== '1') {
-  app.use(express.static(path.join(__dirname_local, '../dist')));
-  app.get('*', (req: ExpressRequest, res: ExpressResponse) => {
-    res.sendFile(path.join(__dirname_local, '../dist/index.html'));
-  });
-}
-
-app.use((req: ExpressRequest, res: ExpressResponse, next: NextFunction) => {
-    res.status(404).json({ message: `Not Found - ${req.originalUrl}` });
-});
-// ============================================================================
-// VERCEL SERVERLESS EXPORT
-// ============================================================================
-
-// For Vercel serverless deployment
-export default serverless(app);
-
-// For local development testing
-export { app };
