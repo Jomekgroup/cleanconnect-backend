@@ -2,17 +2,13 @@
   "version": 2,
   "functions": {
     "index.js": { 
-      "runtime": "nodejs20.x" // Use a modern Node.js runtime
+      "runtime": "nodejs20.x" 
     }
   },
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "index.js" // Route all /api/ traffic to your serverless function
-    },
-    {
-      "src": "/",
-      "dest": "index.js" // Route the root path (for /) to the function as well
+      "src": "/(.*)",
+      "dest": "index.js"
     }
   ]
 }
