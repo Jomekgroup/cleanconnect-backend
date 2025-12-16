@@ -1,11 +1,8 @@
 {
-  "name": "cleanconnect-backend",
-  // ... other fields ...
-  "engines": {
-    "node": "20.x" 
-  },
-  "dependencies": {
-    // ...
+  "version": 2,
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs18.x"
+    }
   }
-  // ...
 }
