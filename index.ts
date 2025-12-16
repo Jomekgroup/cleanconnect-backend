@@ -830,21 +830,23 @@ app.use((req, res) => {
 // VERCEL SERVERLESS EXPORT & LOCAL START
 // ============================================================================
 
-// Vercel Serverless Export (Standard for @vercel/node)
-module.exports = serverless(app);
+// 1. Vercel Serverless Export: The necessary part for deployment
+const serverless = require('serverless-http');
 
-// Local Development Fallback
-if (require.main === module) {
-  const PORT = process.env.PORT || 5000;
-  
-  app.listen(PORT, () => {
-    console.log(`Server running locally on port ${PORT}`);
-    
-    if (!process.env.DATABASE_URL) {
-        console.warn("WARNING: DATABASE_URL is not set. Database features will fail.");
-    }
-    if (!process.env.API_KEY) {
-        console.warn("WARNING: API_KEY is not set. AI features will fail.");
-    }
-  });
+// This conditional block is a best practice:
+// If running in a Vercel environment, export the handler.
+// Otherwise (for local development), start the server with app.listen().
+
+if (process.env.NODE_ENV === 'production' && process.env.VERCEL) {
+    // Export the wrapped Express app for Vercel
+    module.exports = serverless(app);
+} else {
+    // Local Development: Start the server using app.listen()
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+    });
+
+    // You can also export the app instance for testing purposes locally
+    module.exports = app; 
 }
