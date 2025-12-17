@@ -408,7 +408,6 @@ app.post('/api/contact', (req, res) => {
 });
 
 // Catch-all 404 handler for API routes
-// This MUST stay here to catch bad API calls (like /api/bad-route)
 app.use('/api/*', (req, res) => {
     res.status(404).json({ message: `API Endpoint Not Found - ${req.originalUrl}` });
 });
@@ -418,7 +417,6 @@ app.use('/api/*', (req, res) => {
 // ============================================================================
 
 // Serve static files in production
-// (NOTE: This handles frontend routing if you are serving the frontend from here)
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname_local, '..', 'dist');
 
@@ -431,18 +429,18 @@ if (process.env.NODE_ENV === 'production') {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   } else {
-    // If the frontend build is missing, we log it but don't crash.
-    // This allows the API to still work even if frontend files are missing.
-    console.warn(`[WARNING] Static file directory not found: ${distPath}. If you are using a separate frontend (e.g. Vercel), this is fine.`);
+    console.error(`Static file directory not found: ${distPath}. Frontend may not load.`);
   }
 }
 
-// *** IMPORTANT FIX: REMOVED THE FINAL 404 HANDLER HERE ***
-// The previous "app.use(...)" block was catching requests and blocking correct routing.
+// Final 404 handler for development
+app.use((req, res) => {
+    res.status(404).json({ message: `Not Found - ${req.originalUrl}` });
+});
 
 // Server Start: Crucial for Render deployment
 app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
   if (!process.env.DATABASE_URL) {
       console.warn("WARNING: DATABASE_URL is not set. Database features will fail.");
   }
