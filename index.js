@@ -96,12 +96,9 @@ app.post('/api/auth/register', async (req, res) => {
       [email, hashedPassword, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, servicesJson, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc]
     );
 
-    const user = result.rows[0];
     res.status(201).json({
-      ...user,
-      token: generateToken(user.id, user.role, user.is_admin, user.admin_role)
-    });
-  } catch (error) { handleError(res, error, 'Registration failed'); }
+  message: "Registration successful! Please log in.",
+  redirectToLogin: true
 });
 
 app.post('/api/auth/login', async (req, res) => {
