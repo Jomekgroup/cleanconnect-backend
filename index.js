@@ -74,7 +74,7 @@ const admin = (req, res, next) => {
 };
 
 // ============================================================================
-// ROUTES: AUTH
+// ROUTES: AUTH (FIXED: REGISTRATION REDIRECT LOGIC)
 // ============================================================================
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, services, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc } = req.body;
@@ -84,21 +84,27 @@ app.post('/api/auth/register', async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    const servicesJson = services ? JSON.stringify(services) : null;
+    
+    // Safety check: ensure services is at least an empty array string
+    const servicesJson = services ? JSON.stringify(services) : '[]';
 
-    const result = await pool.query(
+    await pool.query(
       `INSERT INTO users (
       email, password_hash, role, full_name, phone_number, state, city, other_city, address,
       client_type, cleaner_type, company_name, company_address, experience, services, bio,
       charge_hourly, charge_daily, charge_per_contract, charge_per_contract_negotiable,
       bank_name, account_number, profile_photo, government_id, business_reg_doc, subscription_tier, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'Free', NOW()) RETURNING *`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'Free', NOW())`,
       [email, hashedPassword, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, servicesJson, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc]
     );
 
+    // REMOVED TOKEN: This prevents the app from logging the user in automatically
     res.status(201).json({
-  message: "Registration successful! Please log in.",
-  redirectToLogin: true
+      message: 'Registration successful! Please proceed to the login page.',
+      success: true
+    });
+  } catch (error) { handleError(res, error, 'Registration failed'); }
+})
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -411,36 +417,30 @@ app.use('/api/*', (req, res) => {
 });
 
 // ============================================================================
-// STATIC FILES & SERVER START (RENDER READY)
+// STATIC FILES & SERVER START
 // ============================================================================
 
-// Serve static files in production
-// (NOTE: This handles frontend routing if you are serving the frontend from here)
 if (process.env.NODE_ENV === 'production') {
-  const distPath = path.join(__dirname_local, '..', 'dist');
+  // We use the current directory to find 'dist'
+  const distPath = path.join(__dirname_local, 'dist');
 
   if (fs.existsSync(distPath)) {
-    console.log(`Serving static files from: ${distPath}`);
+    console.log(`[INFO] Serving static files from: ${distPath}`);
+    
+    // 1. Serve the actual files (CSS, JS, Images)
     app.use(express.static(distPath));
 
-    // Catch-all to serve index.html for all non-API GET requests (needed for React Router)
+    // 2. IMPORTANT: Only catch-all for GET requests that ARE NOT API calls
+    // This allows React Router to handle the URL without interference
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   } else {
-    // If the frontend build is missing, we log it but don't crash.
-    // This allows the API to still work even if frontend files are missing.
-    console.warn(`[WARNING] Static file directory not found: ${distPath}. If you are using a separate frontend (e.g. Vercel), this is fine.`);
+    console.warn(`[WARNING] Static file directory not found: ${distPath}`);
   }
 }
 
-// *** IMPORTANT FIX: REMOVED THE FINAL 404 HANDLER HERE ***
-// The previous "app.use(...)" block was catching requests and blocking correct routing.
-
-// Server Start: Crucial for Render deployment
+// Final Server Startup
 app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  if (!process.env.DATABASE_URL) {
-      console.warn("WARNING: DATABASE_URL is not set. Database features will fail.");
-  }
+  console.log(`Server running on port ${PORT}`);
 });
