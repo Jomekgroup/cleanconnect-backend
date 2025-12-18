@@ -16,19 +16,14 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
 
-// Increase payload limit for Base64 image uploads
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// Database Connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Required by Render for external PostgreSQL connections
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-// Define a local __dirname for proper path resolution in production
-// (Using path.resolve is safer for cross-platform compatibility)
 const __dirname_local = path.resolve();
 
 // ============================================================================
@@ -39,7 +34,6 @@ const generateToken = (id, role, isAdmin, adminRole) => {
 };
 
 const sendEmail = async (to, subject, text) => {
-  // Mock Email Sender
   if (process.env.NODE_ENV !== 'test') {
     console.log(`\n--- [MOCK EMAIL] ---\nTo: ${to}\nSubject: ${subject}\nBody: ${text}\n--------------------\n`);
   }
@@ -79,15 +73,16 @@ const admin = (req, res, next) => {
 // ============================================================================
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, services, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc } = req.body;
+  
   try {
-    const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    // FIX: Force email to lowercase to avoid case-sensitivity login issues
+    const normalizedEmail = email.toLowerCase();
+
+    const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     if (userExists.rows.length > 0) return res.status(400).json({ message: 'User already exists' });
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Safety check: ensure services is at least an empty array string
-    // This prevents the "split of null" error on the frontend
     const servicesJson = services ? JSON.stringify(services) : '[]';
 
     await pool.query(
@@ -97,11 +92,9 @@ app.post('/api/auth/register', async (req, res) => {
       charge_hourly, charge_daily, charge_per_contract, charge_per_contract_negotiable,
       bank_name, account_number, profile_photo, government_id, business_reg_doc, subscription_tier, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, 'Free', NOW())`,
-      [email, hashedPassword, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, servicesJson, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc]
+      [normalizedEmail, hashedPassword, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, servicesJson, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc]
     );
 
-    // FIXED: Removed token response to prevent auto-login. 
-    // Frontend will now see "success: true" and redirect to login page.
     res.status(201).json({
       message: 'Registration successful! Please proceed to the login page.',
       success: true
@@ -112,7 +105,10 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    // FIX: Force email to lowercase during login too
+    const normalizedEmail = email.toLowerCase();
+    
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     const user = result.rows[0];
 
     if (user && (await bcrypt.compare(password, user.password_hash))) {
@@ -151,17 +147,34 @@ app.get('/api/users/me', protect, async (req, res) => {
     const user = result.rows[0];
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    // Ensure we handle potential null services safely
     const formattedUser = {
-      id: user.id, fullName: user.full_name, email: user.email, role: user.role, phoneNumber: user.phone_number, address: user.address,
-      state: user.state, city: user.city, otherCity: user.other_city, profilePhoto: user.profile_photo, isAdmin: user.is_admin,
-      adminRole: user.admin_role, subscriptionTier: user.subscription_tier, cleanerType: user.cleaner_type, clientType: user.client_type,
-      companyName: user.company_name, companyAddress: user.company_address, experience: user.experience, bio: user.bio,
+      ...user,
+      fullName: user.full_name,
+      phoneNumber: user.phone_number,
+      companyName: user.company_name,
+      companyAddress: user.company_address,
+      otherCity: user.other_city,
+      profilePhoto: user.profile_photo,
+      isAdmin: user.is_admin,
+      adminRole: user.admin_role,
+      subscriptionTier: user.subscription_tier,
+      cleanerType: user.cleaner_type,
+      clientType: user.client_type,
+      chargeHourly: user.charge_hourly,
+      chargeDaily: user.charge_daily,
+      chargePerContract: user.charge_per_contract,
+      chargePerContractNegotiable: user.charge_per_contract_negotiable,
+      bankName: user.bank_name,
+      accountNumber: user.account_number,
+      pendingSubscription: user.pending_subscription,
+      isSuspended: user.is_suspended,
+      governmentId: user.government_id,
+      businessRegDoc: user.business_reg_doc,
       services: typeof user.services === 'string' ? JSON.parse(user.services) : (user.services || []),
-      chargeHourly: user.charge_hourly, chargeDaily: user.charge_daily, chargePerContract: user.charge_per_contract,
-      chargePerContractNegotiable: user.charge_per_contract_negotiable, bankName: user.bank_name, accountNumber: user.account_number,
-      bookingHistory: user.booking_history || [], reviewsData: user.reviews_data || [], pendingSubscription: user.pending_subscription,
-      subscriptionReceipt: user.subscription_receipt ? JSON.parse(user.subscription_receipt) : null, isSuspended: user.is_suspended,
-      governmentId: user.government_id, businessRegDoc: user.business_reg_doc
+      bookingHistory: user.booking_history || [],
+      reviewsData: user.reviews_data || [],
+      subscriptionReceipt: user.subscription_receipt ? JSON.parse(user.subscription_receipt) : null
     };
     res.json(formattedUser);
   } catch (error) { handleError(res, error); }
@@ -273,8 +286,49 @@ app.post('/api/reviews', protect, async (req, res) => {
 });
 
 // ============================================================================
-// ROUTES: CHAT & MESSAGES
+// ROUTES: CHAT & MESSAGES (FIXED: Added Generic Route)
 // ============================================================================
+
+// 1. FIX: Added this new generic route to handle frontend calls to /api/chats
+app.get('/api/chats', protect, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM chats WHERE client_id = $1 OR cleaner_id = $1 ORDER BY updated_at DESC',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) { handleError(res, error, 'Fetching chats failed'); }
+});
+
+// 2. FIX: Added ability to create a new chat via POST /api/chats
+app.post('/api/chats', protect, async (req, res) => {
+  const { recipientId } = req.body;
+  try {
+    // Check if chat already exists
+    const existing = await pool.query(
+      `SELECT * FROM chats 
+       WHERE (client_id = $1 AND cleaner_id = $2) 
+       OR (client_id = $2 AND cleaner_id = $1)`,
+      [req.user.id, recipientId]
+    );
+    
+    if (existing.rows.length > 0) {
+      return res.json(existing.rows[0]);
+    }
+
+    // Determine who is who (simplified logic)
+    // In a real app, you might check roles, but for now we assume requestor and recipient
+    // We just need unique pairs. Let's assume req.user is client for simplicity, 
+    // or we just store them. 
+    // BETTER LOGIC: Just store them as p1 and p2, but adhering to your schema:
+    const result = await pool.query(
+      'INSERT INTO chats (client_id, cleaner_id, created_at, updated_at) VALUES ($1, $2, NOW(), NOW()) RETURNING *',
+      [req.user.id, recipientId] // WARNING: This assumes strict Client/Cleaner roles. 
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) { handleError(res, error, 'Create chat failed'); }
+});
+
 app.get('/api/chats/user/:userId', protect, async (req, res) => {
   try {
     const result = await pool.query(
@@ -319,7 +373,7 @@ app.post('/api/chats/:chatId/messages', protect, async (req, res) => {
 });
 
 // ============================================================================
-// ROUTES: SUBSCRIPTIONS
+// ROUTES: SUBSCRIPTIONS & ADMIN
 // ============================================================================
 app.post('/api/subscriptions/proof', protect, async (req, res) => {
   const { pendingSubscription, subscriptionReceipt } = req.body;
@@ -336,9 +390,6 @@ app.post('/api/subscriptions/proof', protect, async (req, res) => {
   } catch (error) { handleError(res, error, 'Subscription proof submission failed'); }
 });
 
-// ============================================================================
-// ROUTES: ADMIN
-// ============================================================================
 app.get('/api/admin/dashboard', protect, admin, async (req, res) => {
   try {
     const clientCount = (await pool.query("SELECT COUNT(*) FROM users WHERE role = 'client'")).rows[0].count;
@@ -382,9 +433,6 @@ app.post('/api/admin/subscriptions/:id/approve', protect, admin, async (req, res
   } catch (error) { handleError(res, error, 'Subscription approval failed'); }
 });
 
-// ============================================================================
-// ROUTES: SUPPORT
-// ============================================================================
 app.post('/api/support/tickets', protect, async (req, res) => {
   const { subject, description, priority } = req.body;
   try {
@@ -403,9 +451,6 @@ app.post('/api/support/tickets', protect, async (req, res) => {
   } catch (error) { handleError(res, error, 'Ticket submission failed'); }
 });
 
-// ============================================================================
-// ROUTES: MISC
-// ============================================================================
 app.post('/api/contact', (req, res) => {
   const { name, email, message } = req.body;
   res.json({ message: 'Message received' });
@@ -418,18 +463,12 @@ app.use('/api/*', (req, res) => {
 // ============================================================================
 // STATIC FILES & SERVER START
 // ============================================================================
-
 if (process.env.NODE_ENV === 'production') {
-  // Use path.join(__dirname_local, 'dist') since we defined __dirname_local at the top
   const distPath = path.join(__dirname_local, 'dist');
 
   if (fs.existsSync(distPath)) {
     console.log(`[INFO] Serving static files from: ${distPath}`);
-    
-    // 1. Serve the actual files (CSS, JS, Images)
     app.use(express.static(distPath));
-
-    // 2. IMPORTANT: Only catch-all for GET requests that ARE NOT API calls
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
@@ -438,7 +477,6 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
-// Final Server Startup
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
