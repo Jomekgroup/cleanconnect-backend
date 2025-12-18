@@ -28,6 +28,7 @@ const pool = new Pool({
 });
 
 // Define a local __dirname for proper path resolution in production
+// (Using path.resolve is safer for cross-platform compatibility)
 const __dirname_local = path.resolve();
 
 // ============================================================================
@@ -74,7 +75,7 @@ const admin = (req, res, next) => {
 };
 
 // ============================================================================
-// ROUTES: AUTH (FIXED: REGISTRATION REDIRECT LOGIC)
+// ROUTES: AUTH
 // ============================================================================
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, services, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc } = req.body;
@@ -84,8 +85,9 @@ app.post('/api/auth/register', async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    
+
     // Safety check: ensure services is at least an empty array string
+    // This prevents the "split of null" error on the frontend
     const servicesJson = services ? JSON.stringify(services) : '[]';
 
     await pool.query(
@@ -98,13 +100,13 @@ app.post('/api/auth/register', async (req, res) => {
       [email, hashedPassword, role, fullName, phoneNumber, state, city, otherCity, address, clientType, cleanerType, companyName, companyAddress, experience, servicesJson, bio, chargeHourly, chargeDaily, chargePerContract, chargePerContractNegotiable, bankName, accountNumber, profilePhoto, governmentId, businessRegDoc]
     );
 
-    // REMOVED TOKEN: This prevents the app from logging the user in automatically
+    // FIXED: Removed token response to prevent auto-login. 
+    // Frontend will now see "success: true" and redirect to login page.
     res.status(201).json({
       message: 'Registration successful! Please proceed to the login page.',
       success: true
     });
   } catch (error) { handleError(res, error, 'Registration failed'); }
-})
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -404,14 +406,11 @@ app.post('/api/support/tickets', protect, async (req, res) => {
 // ============================================================================
 // ROUTES: MISC
 // ============================================================================
-// Contact form (no login required)
 app.post('/api/contact', (req, res) => {
   const { name, email, message } = req.body;
   res.json({ message: 'Message received' });
 });
 
-// Catch-all 404 handler for API routes
-// This MUST stay here to catch bad API calls (like /api/bad-route)
 app.use('/api/*', (req, res) => {
     res.status(404).json({ message: `API Endpoint Not Found - ${req.originalUrl}` });
 });
@@ -421,7 +420,7 @@ app.use('/api/*', (req, res) => {
 // ============================================================================
 
 if (process.env.NODE_ENV === 'production') {
-  // We use the current directory to find 'dist'
+  // Use path.join(__dirname_local, 'dist') since we defined __dirname_local at the top
   const distPath = path.join(__dirname_local, 'dist');
 
   if (fs.existsSync(distPath)) {
@@ -431,7 +430,6 @@ if (process.env.NODE_ENV === 'production') {
     app.use(express.static(distPath));
 
     // 2. IMPORTANT: Only catch-all for GET requests that ARE NOT API calls
-    // This allows React Router to handle the URL without interference
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
